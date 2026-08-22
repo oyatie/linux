@@ -93,6 +93,7 @@ configs/fragments/
                              paravirt + PVH direct boot
   opt-*.config               windows guests, RT, RDMA, debug, low-memory
   configs/sysctl.d/          image policy the kernel cannot express as Kconfig
+  configs/accept-defaults.config  reviewed default-on features (the audit ledger)
 scripts/check-config.sh      asserts the resolved .config honours every line
 profiles/*.profile           which fragments compose each role's kernel
 docs/DESIGN.md               why each subsystem is in or out
@@ -125,10 +126,22 @@ still be quietly missing the IOMMU, a mitigation, or KVM itself.
 
 ```
 $ make config
-==> baseline: allnoconfig (nothing is on until a fragment turns it on)
-==> merging 9 fragments
 ==> verifying intent survived Kconfig resolution
-check-config: all requested symbols present in .config (0 skipped)
+check-config: all requested symbols honoured in .config
+```
+
+Two verifiers, two failure modes. `check-config` proves every symbol a
+fragment *asked for* survived Kconfig resolution (dependencies can silently
+drop a `=y`). `make audit` proves the converse -- that nothing is on that
+*nobody asked for*: every default-on feature must be requested by a fragment,
+implied by a dependency, or listed in `configs/accept-defaults.config` with a
+reason. Together they make the enabled set exactly the decided set, so
+"purposefully scoped" is an invariant the build enforces, not a claim:
+
+```
+$ make audit
+audit OK: every default-on feature is accounted for (125 accepted,
+          224 promptless internals ignored)
 ```
 
 It reports three ways to be wrong: `MISSING` (dependency unmet or symbol

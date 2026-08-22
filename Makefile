@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -65,6 +65,7 @@ help:
 	@echo "  make validate-all     resolve + verify the shippable matrix on both tracks"
 	@echo "  make msv              recompute the minimum supported kernel version"
 	@echo "  make unused           fail if any fragment is unreachable"
+	@echo "  make audit            fail if any default-on feature is un-accounted"
 	@echo "  make menuconfig       explore interactively on top of the resolved config"
 	@echo "  make config-diff      show what menuconfig changed, as fragment lines"
 	@echo "  make smoke            boot the built kernel under QEMU and assert on it"
@@ -117,6 +118,22 @@ msv:
 # Fail if a fragment exists that no profile or knob can select.
 unused:
 	./scripts/unused-fragments.sh
+
+# The scoping gate: every default-on feature must be requested, implied, or in
+# configs/accept-defaults.config.  Runs against the current PROFILE/KARCH.
+audit: config
+	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro $(IMAGE) sh -c \
+		'python3 /repo/scripts/unaudited.py --strict \
+			--accept /repo/configs/accept-defaults.config \
+			/build/linux-$(KERNEL_VERSION) /build/linux-$(KERNEL_VERSION)/.config \
+			/repo/configs/fragments/*.config'
+
+# Print default-on features not yet in the ledger (to extend it).
+audit-list: config
+	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro $(IMAGE) sh -c \
+		'python3 /repo/scripts/unaudited.py --accept /repo/configs/accept-defaults.config \
+			/build/linux-$(KERNEL_VERSION) /build/linux-$(KERNEL_VERSION)/.config \
+			/repo/configs/fragments/*.config'"'"
 
 # Classify every enabled symbol: requested by a fragment, implied by a select,
 # or arrived from a Kconfig default with nobody looking.

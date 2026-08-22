@@ -86,3 +86,24 @@ needs no enforcement. Kept for accounting and PSI. It would survive without it.
 Before this pass the spread between the heaviest and lightest *host* profile
 was 82 symbols, most of it accidental. It is now 126, and every symbol of the
 difference is a decision with a sentence attached.
+
+## Update: the scoping invariant
+
+The audits above were one-time sweeps. They are now continuous. `make audit`
+(folded into `validate-all` and CI) fails the build if any default-on
+*feature* -- a prompted symbol no fragment requested and nothing enabled
+selects -- is absent from `configs/accept-defaults.config`. So the count of
+un-decided symbols in every shipped kernel is **zero by construction**: each
+enabled symbol is requested (a fragment named it), implied (a dependency of
+something requested), or accepted in the ledger with a stated reason.
+
+`scripts/unaudited.py` splits the residue into *features* (prompted; a real
+decision) and *promptless internals* (`HAVE_*`, `def_bool` with no prompt; no
+human ever chooses them, so they are not decisions and are ignored). The
+ledger currently accounts for ~165 reviewed defaults across the fleet; the
+per-profile counts (82 on fc-guest up to 126 on the 7.2 hypervisor) are the
+honest measure of "defaults we looked at and kept."
+
+This does not make the kernel maximally small -- accepting a default is a
+decision to keep it. It makes the kernel *fully decided*, which is the
+defensible version of "narrowly scoped": nothing is present by accident.

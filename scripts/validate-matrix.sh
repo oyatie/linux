@@ -37,8 +37,20 @@ echo "$MATRIX" | while IFS= read -r row; do
 	for v in $VERSIONS; do
 		printf '\n=========== %-38s @ linux-%s ===========\n' "$row" "$v"
 		# shellcheck disable=SC2086
-		make --no-print-directory KERNEL_VERSION="$v" PROFILE="$profile" $vars config ||
-			{ echo "FAILED: $row @ $v" >>/tmp/kvmhost-matrix-fail; }
+		if make --no-print-directory KERNEL_VERSION="$v" PROFILE="$profile" $vars config; then
+			if [ "${AUDIT:-1}" = "1" ]; then
+				# the .config that config just wrote, plus arch-correct tree
+				a=x86_64; case "$vars" in *KARCH=arm64*) a=arm64;; esac
+				docker run --rm -v kvmhost-src:/build -v "$PWD":/repo:ro kvmhost-build \
+					sh -c "python3 /repo/scripts/unaudited.py --strict \
+						--accept /repo/configs/accept-defaults.config \
+						/build/linux-$v /build/linux-$v/.config \
+						/repo/configs/fragments/*.config" ||
+					echo "AUDIT-FAILED: $row @ $v" >>/tmp/kvmhost-matrix-fail
+			fi
+		else
+			echo "FAILED: $row @ $v" >>/tmp/kvmhost-matrix-fail
+		fi
 	done
 done
 if [ -s /tmp/kvmhost-matrix-fail ]; then

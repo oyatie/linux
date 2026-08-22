@@ -51,19 +51,24 @@ if [ -n "$unused" ]; then
 	fail=1
 fi
 
-dangling=$(grep -rhoE '\b(kver|opt|hw-nic|hw-accel|hw-gpu|cpu|platform|strip|layer)-[a-z0-9][a-z0-9-]*' \
-	README.md Makefile scripts profiles configs/fragments configs/sysctl.d 2>/dev/null |
-	sort -u | while IFS= read -r tok; do
-		[ -f "configs/fragments/$tok.config" ] && continue
-		# knob prefixes appearing bare in prose ("hw-nic- families") are
-		# fine.  NB leading paren: a bare ) inside $() ends the substitution.
-		case $tok in (*-) continue;; esac
-		# English, not fragments.
-		case $tok in (opt-in|opt-out|opt-ins) continue;; esac
-		echo "$tok"
+# Every fragment a PROFILE names (LAYERS/OVERRIDES/PLATFORM) must exist.
+# This is the reference->exists direction; it is exact (no prose scanning) and
+# fast, catching a rename before a build would.  build.sh's own base list and
+# knob families are guarded at config time by [ -f ] || exit, so they need no
+# separate check here.
+dangling=$(for pf in profiles/*.profile; do
+		# shellcheck disable=SC1090
+		. "$pf"
+		for f in ${LAYERS:-} ${OVERRIDES:-}; do
+			[ -f "configs/fragments/$f.config" ] || echo "$f (in $(basename "$pf"))"
+		done
+		[ -n "${PLATFORM:-}" ] &&
+			{ [ -f "configs/fragments/platform-$PLATFORM.config" ] ||
+				echo "platform-$PLATFORM (in $(basename "$pf"))"; }
+		unset LAYERS OVERRIDES PLATFORM NICS ARTIFACT DESC
 	done)
 if [ -n "$dangling" ]; then
-	echo "dangling fragment references (file does not exist):"
+	echo "profile references a fragment that does not exist:"
 	echo "$dangling" | sed 's/^/    /'
 	fail=1
 fi

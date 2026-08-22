@@ -15,14 +15,45 @@ every enabled symbol in a resolved config into:
 The third category is the interesting one.  It is where XFS online repair and
 MISC_FILESYSTEMS came from, and it is usually the majority of the image.
 
-usage: unaudited.py <kernel-tree> <resolved .config> <fragment>...
+With --accept <file> --strict it becomes a GATE: every undecided *feature*
+(a prompted symbol that no fragment requested and nothing enabled selects)
+must appear in the accept-defaults ledger, or the run fails.  That makes
+"purposefully scoped" an invariant -- the un-decided count is zero by
+construction -- rather than a claim someone has to re-check by hand.
+
+usage:
+  unaudited.py <kernel-tree> <.config> <fragment>...              # report
+  unaudited.py --accept F --strict <tree> <.config> <fragment>... # gate
+  unaudited.py --list <tree> <.config> <fragment>...              # symbols only
 """
 import re
 import sys
 from pathlib import Path
 
-tree, config = Path(sys.argv[1]), Path(sys.argv[2])
-fragments = [Path(p) for p in sys.argv[3:]]
+argv = sys.argv[1:]
+accept_file = None
+strict = False
+list_only = False
+while argv and argv[0].startswith("--"):
+    opt = argv.pop(0)
+    if opt == "--accept":
+        accept_file = Path(argv.pop(0))
+    elif opt == "--strict":
+        strict = True
+    elif opt == "--list":
+        list_only = True
+    else:
+        sys.exit(f"unknown option {opt}")
+
+tree, config = Path(argv[0]), Path(argv[1])
+fragments = [Path(p) for p in argv[2:]]
+
+accepted = set()
+if accept_file and accept_file.exists():
+    for line in accept_file.read_text().splitlines():
+        m = re.match(r"^\s*CONFIG_([A-Z0-9_]+)", line)
+        if m:
+            accepted.add(m.group(1))
 
 # --- what the fragments asked for ------------------------------------------
 requested = set()
@@ -82,20 +113,40 @@ undecided_internal = [s for s in undecided if s not in prompted]
 noop = sorted(s for s in requested if s in enabled and s not in prompted
               and s not in implied)
 
+# --list: just the undecided-feature symbols, for building the ledger.
+if list_only:
+    for s in undecided_features:
+        print(f"CONFIG_{s}")
+    sys.exit(0)
+
+# The gate: undecided features not covered by the accept ledger.
+unaccounted = [s for s in undecided_features if s not in accepted]
+
+if strict:
+    if unaccounted:
+        print(f"AUDIT FAIL ({config.name}): {len(unaccounted)} default-on "
+              f"feature(s) neither requested nor accepted:")
+        for s in unaccounted:
+            print(f"    CONFIG_{s}")
+        print()
+        print("Each must be: requested in a fragment (you want it), stripped "
+              "(you don't),")
+        print("or added to configs/accept-defaults.config with a reason (a "
+              "reviewed default).")
+        sys.exit(1)
+    print(f"audit OK ({config.name}): every default-on feature is accounted "
+          f"for ({len(undecided_features)} accepted, "
+          f"{len(undecided_internal)} promptless internals ignored)")
+    sys.exit(0)
+
 print(f"profile config : {config.name}")
 print(f"enabled        : {len(enabled)}")
 print(f"  requested    : {len(enabled & requested)}  (a fragment named it)")
 print(f"  implied      : {len(implied & enabled)}  (selected by something enabled)")
 print(f"  UNDECIDED    : {len(undecided)}  (Kconfig default; nobody looked)")
-print(f"    features   : {len(undecided_features)}  <-- reviewable: real options that defaulted on")
+print(f"    features   : {len(undecided_features)}  ({len(unaccounted)} not yet in the ledger)")
 print(f"    internal   : {len(undecided_internal)}  (promptless plumbing; not a decision anyone makes)")
 print()
-if noop:
-    print(f"requested but promptless ({len(noop)}) -- the request was a no-op,")
-    print("the symbol was going to be set anyway:")
-    for s in noop[:20]:
-        print(f"    {s}")
-    print()
-print(f"UNDECIDED features ({len(undecided_features)}) -- real options nobody asked for:")
-for s in undecided_features:
+print(f"UNDECIDED features not in the ledger ({len(unaccounted)}):")
+for s in unaccounted:
     print(f"    {s}")

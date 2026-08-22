@@ -10,6 +10,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: make unused
+      # The scoping invariant: every default-on feature is requested, implied,
+      # or in the accept-defaults ledger.  validate-all enforces it per tuple;
+      # this is a fast standalone check on the default profile for clear CI
+      # signal.
+      - run: make image
+      - run: make audit
 
   # The full shippable matrix (profile x knobs x both kernel tracks),
   # config-resolution only -- this is where symbol drift and dependency
