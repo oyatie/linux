@@ -65,7 +65,17 @@ kernel.unprivileged_bpf_disabled = 1
 net.core.bpf_jit_harden = 1
 # Networking for a host carrying tenant traffic.
 net.core.default_qdisc = fq
-net.ipv4.tcp_congestion_control = bbr
+# DCTCP for east-west.  This REQUIRES the fabric to mark ECN -- without AQM
+# marking on the switches, DCTCP sees no congestion signal and is worse than
+# cubic.  Verify end-to-end before enabling, and fall back to bbr if not.
+net.ipv4.tcp_ecn = 1
+net.ipv4.tcp_congestion_control = dctcp
+# Worker nodes running untrusted tenant code: keep io_uring for the agent,
+# deny it to tenants (0=on, 1=restricted to CAP_SYS_ADMIN/io_uring_group,
+# 2=off).  See docs/CHALLENGE.md for why this is a sysctl and not a strip.
+kernel.io_uring_disabled = 1
+# A VMM core dump is guest memory written to disk.
+fs.suid_dumpable = 0
 net.core.rmem_max = 134217728
 net.core.wmem_max = 134217728
 ```

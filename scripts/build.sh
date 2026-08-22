@@ -39,7 +39,7 @@ profile_file="$REPO/profiles/$PROFILE.profile"
 # Base: every layer in the fleet shares these.  If a decision differs between
 # layers it does not belong here -- it belongs in that layer's fragment.
 base="00-core 15-vm-boot 20-storage 30-net 40-platform 50-security 55-kspp \
-60-observability 70-liveupdate 90-strip"
+60-observability 70-liveupdate 90-strip 95-no-legacy"
 
 fragments=""
 for f in $base ${LAYERS:-}; do
@@ -56,6 +56,17 @@ nics=${KVMHOST_NICS:-${NICS:-mellanox intel broadcom}}
 for nic in $nics; do
 	f="$REPO/configs/fragments/hw-nic-$nic.config"
 	[ -f "$f" ] || { echo "no such NIC fragment: hw-nic-$nic.config" >&2; exit 1; }
+	fragments="$fragments $f"
+done
+
+# Hardware accelerators: per-fleet PCIe devices, selected like the NICs.  A
+# driver for an accelerator the machine does not have is the same mistake as a
+# driver for a NIC it does not have.
+accel=${KVMHOST_ACCEL:-${ACCEL:-none}}
+[ "$accel" = "none" ] && accel=""
+for a in $accel; do
+	f="$REPO/configs/fragments/hw-accel-$a.config"
+	[ -f "$f" ] || { echo "no such accelerator fragment: hw-accel-$a.config" >&2; exit 1; }
 	fragments="$fragments $f"
 done
 

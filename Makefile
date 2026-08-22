@@ -28,11 +28,12 @@ DOCKER_RUN = docker run --rm \
 	$(if $(JOBS),-e JOBS=$(JOBS)) \
 	-e KVMHOST_EXTRA="$(KVMHOST_EXTRA)" \
 	-e KVMHOST_NICS="$(KVMHOST_NICS)" \
+	-e KVMHOST_ACCEL="$(ACCEL)" \
 	-e PROFILE="$(PROFILE)" \
 	-e MSV="$(MSV)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv menuconfig config-diff initramfs smoke shell clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv unaudited menuconfig config-diff initramfs smoke shell clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels, currently pinned to linux-$(KERNEL_VERSION)"
@@ -59,6 +60,7 @@ help:
 	@echo "  KERNEL_VERSION=7.3 make build      build against another release (>= MSV $(MSV))"
 	@echo "  KVMHOST_EXTRA=opt-guest make build add optional fragments"
 	@echo "  KVMHOST_NICS=mellanox make build     build only your fleet's NICs"
+	@echo "  ACCEL=intel-dsa make build           add an accelerator (DSA/IAA, QAT)"
 
 image:
 	docker build -t $(IMAGE) -f docker/Dockerfile docker
@@ -94,6 +96,13 @@ validate: config
 
 msv:
 	./scripts/feature-floor.sh
+
+# Classify every enabled symbol: requested by a fragment, implied by a select,
+# or arrived from a Kconfig default with nobody looking.
+unaudited: config
+	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro $(IMAGE) sh -c \
+		'python3 /repo/scripts/unaudited.py /build/linux-$(KERNEL_VERSION) \
+		/build/linux-$(KERNEL_VERSION)/.config /repo/configs/fragments/*.config'
 
 # Interactive exploration only.  menuconfig is not how this kernel is
 # configured -- an interactive session is not reviewable, not reproducible in
