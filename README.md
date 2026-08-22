@@ -1,18 +1,26 @@
 # kvmhost
 
-A stripped-down Linux kernel for machines whose only job is running virtual
-machines — the host kernel underneath a fleet of KVM hypervisors, not a
-general-purpose server distro kernel with virtualization switched on.
+Stripped-down Linux kernels for a datacenter fleet: one per role — hypervisor
+host, worker node, control plane, scheduler — rather than one general-purpose
+distro kernel with everything switched on.
 
 Everything starts from `allnoconfig`. Nothing is in the image unless a
 fragment in `configs/fragments/` explicitly asks for it, and `make config`
 fails the build if Kconfig silently dropped anything that was asked for.
 
 ```
-make image      # build the container toolchain (once)
-make build      # fetch source, resolve config, compile -> out/bzImage
-make smoke      # boot it under QEMU and assert on what it reports
+make image                    # build the container toolchain (once)
+make PROFILE=worker build     # fetch, resolve config, compile -> out/
+make smoke                    # boot it under QEMU and assert on what it reports
+make validate-all             # resolve + verify every profile
 ```
+
+| Profile | Machine |
+|---|---|
+| `hypervisor` | KVM host, runs guest VMs on bare metal |
+| `worker` | Runs tenant tasks in containers and sandboxes |
+| `control-plane` | Replicated state machine owning cluster state |
+| `scheduler` | One large CPU-bound placement process |
 
 The builder needs **~8 GB of RAM**. Two steps are single-process memory hogs:
 linking `vmlinux.o` with `DEBUG_INFO_BTF` (full DWARF in every object), and
@@ -60,34 +68,34 @@ configs/fragments/
   50-security.config         LSMs, seccomp, hardening, mitigations, no modules
   60-observability.config    perf, ftrace, BTF, kdump, pstore
   90-strip.config            what must never come back, stated explicitly
-  kver-<x.y>.config          per-release deltas (symbols get renamed upstream)
+  layer-*.config             one per role: hypervisor, worker, control-plane,
+                             scheduler
   opt-*.config               guest/nested, modules, RDMA, debug, low-memory
 scripts/check-config.sh      asserts the resolved .config honours every line
+profiles/*.profile           which fragments compose each role's kernel
 docs/DESIGN.md               why each subsystem is in or out
+docs/LAYERS.md               what differs between roles, and why
+docs/LIVEUPDATE.md           livepatch / kexec handover / drain, per layer
+docs/MSV.md                  minimum kernel version, derived per feature
 docs/TUNING.md               boot cmdline and runtime policy for the fleet
 ```
 
-## Kernel version
+## Kernel version and MSV
 
-Pinned in `configs/kernel.pin`, currently **7.2** (mainline), with **6.18.45**
-(longterm) validated as the conservative track:
+Pinned in `configs/kernel.pin`: **7.2**, with an enforced minimum supported
+version of **7.0**.
 
 ```
-make build                        # 7.2
-make KERNEL_VERSION=6.18.45 build # LTS track
-make validate-matrix              # resolve the fragments against both
+make build                       # 7.2
+make KERNEL_VERSION=7.3 build    # any release at or above the floor
+make msv                         # recompute the floor from the features used
 ```
 
-Mainline is the right default when you are landing new silicon — platform
-bring-up (Zen 6, Nova Lake) lands there and is not backported to LTS in any
-complete form. The tradeoff is real and worth restating: a `.0` release has no
-stable point releases behind it yet, and on a hypervisor host a regression is
-a few hundred tenants, not one machine. Run `make validate-matrix` before
-moving either pin.
-
-`kver-*.config` exists because symbols drift between releases. A concrete one
-this repo already hit: `BOOTPARAM_SOFTLOCKUP_PANIC` is a bool in 6.18 and an
-int in 7.2.
+There is no LTS track. The floor is set by live update — `LIVEUPDATE`,
+`LIVEUPDATE_MEMFD` and KHO-armed-at-boot are all 7.0 — and an LTS build below
+it does not fail loudly, it just silently produces a kernel that cannot do a
+live upgrade. `docs/MSV.md` has the per-feature table and what would move the
+floor in either direction.
 
 ## Verification
 

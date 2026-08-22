@@ -9,6 +9,23 @@ OUT=${OUT:-/out}
 JOBS=${JOBS:-$(nproc)}
 EXTRA=${KVMHOST_EXTRA:-}
 
+# Refuse to build below the minimum supported version.  Every symbol below the
+# floor would still "resolve" -- Kconfig would just drop the features that do
+# not exist yet, and check-config would tell you.  Failing here says why.
+if [ -n "${MSV:-}" ]; then
+	kv_maj=$(echo "${KERNEL_VERSION:?}" | cut -d. -f1)
+	kv_min=$(echo "$KERNEL_VERSION" | cut -d. -f2)
+	msv_maj=$(echo "$MSV" | cut -d. -f1)
+	msv_min=$(echo "$MSV" | cut -d. -f2)
+	if [ "$kv_maj" -lt "$msv_maj" ] ||
+		{ [ "$kv_maj" -eq "$msv_maj" ] && [ "$kv_min" -lt "$msv_min" ]; }; then
+		echo "kernel $KERNEL_VERSION is below the minimum supported version $MSV" >&2
+		echo "Live update (LIVEUPDATE/LIVEUPDATE_MEMFD) does not exist there." >&2
+		echo "See docs/MSV.md; regenerate the floor with 'make msv'." >&2
+		exit 1
+	fi
+fi
+
 PROFILE=${PROFILE:-hypervisor}
 profile_file="$REPO/profiles/$PROFILE.profile"
 [ -f "$profile_file" ] || {
@@ -38,9 +55,9 @@ for nic in ${KVMHOST_NICS:-mellanox intel broadcom}; do
 	fragments="$fragments $f"
 done
 
-# Per-version overrides.  Kconfig symbols are renamed, retyped and removed
-# between releases; keeping those deltas in one small file per track is what
-# lets a single fragment set target both LTS and mainline.
+# Per-version overrides.  No kver-*.config ships today (there is one track),
+# but the hook stays: symbols get renamed and retyped between releases, and
+# the next version bump wants somewhere to put the delta.
 kver=$(echo "${KERNEL_VERSION:?}" | cut -d. -f1,2)
 if [ -f "$REPO/configs/fragments/kver-$kver.config" ]; then
 	fragments="$fragments $REPO/configs/fragments/kver-$kver.config"

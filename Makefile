@@ -29,9 +29,10 @@ DOCKER_RUN = docker run --rm \
 	-e KVMHOST_EXTRA="$(KVMHOST_EXTRA)" \
 	-e KVMHOST_NICS="$(KVMHOST_NICS)" \
 	-e PROFILE="$(PROFILE)" \
+	-e MSV="$(MSV)" \
 	$(IMAGE)
 
-.PHONY: help image fetch config build validate validate-matrix validate-all menuconfig config-diff initramfs smoke shell clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv menuconfig config-diff initramfs smoke shell clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels, currently pinned to linux-$(KERNEL_VERSION)"
@@ -48,14 +49,14 @@ help:
 	@echo "  make config           resolve fragments -> .config, verify, stop"
 	@echo "  make build            config + compile bzImage into out/"
 	@echo "  make validate         config-only check against the pinned version"
-	@echo "  make validate-matrix  same, against every version in configs/kernel.pin"
-	@echo "  make validate-all     every profile x every kernel version"
+	@echo "  make validate-all     resolve + verify every profile"
+	@echo "  make msv              recompute the minimum supported kernel version"
 	@echo "  make menuconfig       explore interactively on top of the resolved config"
 	@echo "  make config-diff      show what menuconfig changed, as fragment lines"
 	@echo "  make smoke            boot the built kernel under QEMU and assert on it"
 	@echo "  make shell            drop into the build container"
 	@echo
-	@echo "  KERNEL_VERSION=7.2 make build      build against mainline instead"
+	@echo "  KERNEL_VERSION=7.3 make build      build against another release (>= MSV $(MSV))"
 	@echo "  KVMHOST_EXTRA=opt-guest make build add optional fragments"
 	@echo "  KVMHOST_NICS=mellanox make build     build only your fleet's NICs"
 
@@ -65,7 +66,20 @@ image:
 $(OUT):
 	@mkdir -p $(OUT)
 
-fetch:
+# Enforced here rather than only in build.sh so that an out-of-range version
+# fails before downloading 150MB of source.
+check-msv:
+	@kv="$(KERNEL_VERSION)"; msv="$(MSV)"; \
+	kvn=$$(printf '%d%03d' $${kv%%.*} $$(echo $$kv | cut -d. -f2)); \
+	msvn=$$(printf '%d%03d' $${msv%%.*} $$(echo $$msv | cut -d. -f2)); \
+	if [ "$$kvn" -lt "$$msvn" ]; then \
+		echo "kernel $$kv is below the minimum supported version $$msv" >&2; \
+		echo "Live update (LIVEUPDATE/LIVEUPDATE_MEMFD) does not exist there." >&2; \
+		echo "See docs/MSV.md; regenerate the floor with 'make msv'." >&2; \
+		exit 1; \
+	fi
+
+fetch: check-msv
 	@docker volume create $(SRC_VOLUME) >/dev/null
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro \
 		-e KERNEL_VERSION=$(KERNEL_VERSION) $(IMAGE) /repo/scripts/fetch.sh
@@ -78,11 +92,8 @@ build: fetch | $(OUT)
 
 validate: config
 
-validate-matrix: | $(OUT)
-	@for v in $$(sed -n 's/^#   \([0-9][0-9.]*\) .*/\1/p' configs/kernel.pin); do \
-		echo "=================== linux-$$v ==================="; \
-		$(MAKE) --no-print-directory KERNEL_VERSION=$$v config || exit 1; \
-	done
+msv:
+	./scripts/feature-floor.sh
 
 # Interactive exploration only.  menuconfig is not how this kernel is
 # configured -- an interactive session is not reviewable, not reproducible in
@@ -101,12 +112,10 @@ config-diff:
 
 validate-all: | $(OUT)
 	@fail=0; \
-	for v in $$(sed -n 's/^#   \([0-9][0-9.]*\) .*/\1/p' configs/kernel.pin); do \
-		for p in profiles/*.profile; do \
-			n=$$(basename $$p .profile); \
-			printf '\n=========== %s @ linux-%s ===========\n' "$$n" "$$v"; \
-			$(MAKE) --no-print-directory KERNEL_VERSION=$$v PROFILE=$$n config || fail=1; \
-		done; \
+	for p in profiles/*.profile; do \
+		n=$$(basename $$p .profile); \
+		printf '\n=========== %s @ linux-$(KERNEL_VERSION) ===========\n' "$$n"; \
+		$(MAKE) --no-print-directory PROFILE=$$n config || fail=1; \
 	done; \
 	exit $$fail
 

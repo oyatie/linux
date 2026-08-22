@@ -1,15 +1,14 @@
-# The kernel this platform is built from.
+# The kernel this platform is built from, and the floor below which it will
+# not build.
 #
-# Default is the current longterm release.  Host kernels track LTS and carry
-# selective backports; they do not chase mainline, because every rebase is a
-# full requalification of the guest-facing surface (KVM, vhost, IOMMU, NIC
-# drivers) across the fleet.
-#
-# Override per-build:  make KERNEL_VERSION=7.2 build
-# Fragments are validated against both -- see `make validate-matrix`.
+# There is no LTS track.  The features this platform is built around -- Live
+# Update Orchestrator, memfd handover, KHO armed at boot -- do not exist below
+# 7.0, so an LTS kernel could not run the design, only a degraded version of
+# it.  Rather than maintain a second track that silently loses live update,
+# the floor is enforced.
 KERNEL_VERSION=7.2
-KERNEL_BASE=v6.x
 
-# Known-good alternates (CI validates the fragment set against these):
-#   6.18.45  longterm  -- default, fleet track
-#   7.2      mainline  -- platform bring-up / new-silicon enablement only
+# Minimum supported version, derived (not guessed) by scripts/feature-floor.sh
+# from the features this platform actually uses.  Regenerate with `make msv`
+# and see docs/MSV.md for the per-feature table.
+MSV=7.0

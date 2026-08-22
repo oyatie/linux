@@ -22,9 +22,9 @@ The honest framing of the trade:
 - with livepatch: the module loader exists again, and signature enforcement is
   the only thing between an attacker with root and kernel code execution.
 
-Layers differ here. `borgmaster` has three to five replicas and can fail over
+Layers differ here. `control-plane` has three to five replicas and can fail over
 in seconds — rebooting one is cheap, so livepatch buys little and costs the
-module loader. `hypervisor` and `borglet` carry workloads that cannot be
+module loader. `hypervisor` and `worker` carry workloads that cannot be
 moved cheaply, and that is where it earns its keep.
 
 ## Tier 2 — kexec with handover (KHO), ~1s, workloads survive
@@ -61,6 +61,6 @@ production: an unsigned kexec image is a kernel-replacement primitive.
 | Layer | Default | Why |
 |---|---|---|
 | `hypervisor` | KHO + LUO | Guests cannot be evacuated cheaply; live migration of every VM is a multi-hour campaign per host |
-| `borglet` | KHO + LUO | Tasks can be rescheduled, but not for free at fleet scale |
-| `borgmaster` | drain + kexec | Replicas fail over in seconds; simplicity beats preserved state |
+| `worker` | KHO + LUO | Tasks can be rescheduled, but not for free at fleet scale |
+| `control-plane` | drain + kexec | Replicas fail over in seconds; simplicity beats preserved state |
 | `scheduler` | drain + kexec | Rebuilds its in-memory state from the control plane on start |

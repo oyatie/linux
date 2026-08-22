@@ -12,15 +12,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kernel: ["7.2", "6.18.45"]
+        profile: [hypervisor, worker, control-plane, scheduler]
     steps:
       - uses: actions/checkout@v4
       - run: make image
-      - run: make KERNEL_VERSION=${{ matrix.kernel }} config
+      - run: make PROFILE=${{ matrix.profile }} config
       - uses: actions/upload-artifact@v4
         with:
-          name: config-${{ matrix.kernel }}
-          path: out/kvmhost.config
+          name: config-${{ matrix.profile }}
+          path: out/${{ matrix.profile }}.config
 
   build:
     needs: validate
@@ -35,5 +35,5 @@ jobs:
         with:
           name: bzImage
           path: |
-            out/bzImage
-            out/kvmhost.config
+            out/bzImage-hypervisor
+            out/hypervisor.config

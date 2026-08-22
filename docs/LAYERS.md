@@ -8,12 +8,12 @@ One kernel per role, not one kernel for the fleet. Each layer shares a base
 | Profile | Machine | Enabled symbols |
 |---|---|---|
 | `hypervisor` | KVM host, runs guest VMs on bare metal | 1601 |
-| `borglet` | Worker node, runs tenant tasks | 1579 |
-| `borgmaster` | Control plane, replicated state machine | 1531 |
-| `scheduler` | Cell scheduler, one large CPU-bound process | 1519 |
+| `worker` | Runs tenant tasks in containers and sandboxes | 1579 |
+| `control-plane` | Replicated state machine owning cluster state | 1531 |
+| `scheduler` | One large CPU-bound placement process | 1519 |
 
 ```
-make PROFILE=borglet build
+make PROFILE=worker build
 make validate-all          # every profile x every kernel track
 ```
 
@@ -27,7 +27,7 @@ SEV/TDX. That is roughly 1.5 MiB of code plus the entire device-assignment
 uAPI. Every other layer carrying it is running an attack surface for a
 capability it never uses.
 
-**borglet** runs other people's code, which makes it the most exposed layer.
+**worker** runs other people's code, which makes it the most exposed layer.
 It needs the container enforcement stack (cgroup v2 io/cpu/memory controllers,
 PSI, RDT cache partitioning) and it needs KVM — but only KVM, for gVisor's
 KVM platform and microVM sandboxes. No VFIO, no SEV: a worker node hands out
@@ -35,19 +35,19 @@ sandboxes, not hardware. `X86_CPU_RESCTRL` matters here specifically: without
 cache partitioning a batch task evicts a latency-sensitive task's working set
 from L3 and no cgroup setting will stop it.
 
-**borgmaster** is a replicated state machine whose commit path is an fsync
+**control-plane** is a replicated state machine whose commit path is an fsync
 barrier. A stall there is a leader election, and a leader election is a
 cell-wide event. It needs no virtualization at all, and its risk is not
 throughput but tail latency and blast radius.
 
 **scheduler** is one enormous long-lived process running a CPU-bound placement
-loop over the whole cell's state. No local durability, no guests, no
+loop over the whole cluster's state. No local durability, no guests, no
 containers to isolate. Its kernel's job is to stay out of the way of a
 multi-hundred-GB heap: TLB reach, NUMA page placement, and profiling.
 
 ## What each layer deliberately does not get
 
-| | hypervisor | borglet | borgmaster | scheduler |
+| | hypervisor | worker | control-plane | scheduler |
 |---|---|---|---|---|
 | KVM | full + SEV/TDX | KVM only | — | — |
 | VFIO / device assignment | yes | — | — | — |
