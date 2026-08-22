@@ -77,7 +77,7 @@ configs/fragments/
   90-strip.config            what must never come back, stated explicitly
   layer-*.config             one per role: hypervisor, worker, control-plane,
                              scheduler
-  opt-*.config               guest/nested, modules, RDMA, debug, low-memory
+  opt-*.config               guest/nested, RDMA, debug, low-memory, real-time
 scripts/check-config.sh      asserts the resolved .config honours every line
 profiles/*.profile           which fragments compose each role's kernel
 docs/DESIGN.md               why each subsystem is in or out

@@ -12,9 +12,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        profile: [hypervisor, worker, control-plane, scheduler]
+        profile: [hypervisor, hypervisor-dpu, worker, trusted-compute,
+                  control-plane, scheduler, microvm, microvm-mmio]
     steps:
       - uses: actions/checkout@v4
+      - run: make unused
       - run: make image
       - run: make PROFILE=${{ matrix.profile }} config
       - uses: actions/upload-artifact@v4

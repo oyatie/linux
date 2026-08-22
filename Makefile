@@ -36,7 +36,7 @@ DOCKER_RUN = docker run --rm \
 	-e MSV="$(MSV)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv unaudited menuconfig config-diff initramfs smoke shell clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv unaudited unused menuconfig config-diff initramfs smoke shell clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels, currently pinned to linux-$(KERNEL_VERSION)"
@@ -55,6 +55,7 @@ help:
 	@echo "  make validate         config-only check against the pinned version"
 	@echo "  make validate-all     resolve + verify every profile"
 	@echo "  make msv              recompute the minimum supported kernel version"
+	@echo "  make unused           fail if any fragment is unreachable"
 	@echo "  make menuconfig       explore interactively on top of the resolved config"
 	@echo "  make config-diff      show what menuconfig changed, as fragment lines"
 	@echo "  make smoke            boot the built kernel under QEMU and assert on it"
@@ -102,6 +103,10 @@ validate: config
 
 msv:
 	./scripts/feature-floor.sh
+
+# Fail if a fragment exists that no profile or knob can select.
+unused:
+	./scripts/unused-fragments.sh
 
 # Classify every enabled symbol: requested by a fragment, implied by a select,
 # or arrived from a Kconfig default with nobody looking.

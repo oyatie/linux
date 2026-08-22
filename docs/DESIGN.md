@@ -31,7 +31,7 @@ removes the whole class, along with `finit_module`, module-parameter parsing,
 and the `.ko` load path.
 
 **Cost:** no out-of-tree drivers, and a fleet with a vendor accelerator will
-need `opt-modules.config` (which turns modules back on with `MODULE_SIG_FORCE`).
+need `opt-livepatch.config` (which turns modules back on with `MODULE_SIG_FORCE`).
 The image is larger, since drivers that would be modules are always resident.
 
 ## Attack surface removed outright

@@ -88,7 +88,7 @@ placement decisions depend on.
 node**. A large instance is sold *with* vNUMA, and a guest kernel without
 `CONFIG_NUMA` cannot place its own memory: it scatters allocations across both
 vNUMA nodes and loses exactly the locality the customer paid for. The caveat
-is recorded in `strip-host.config`; a large-instance guest profile must put
+is recorded in `platform-vm.config`; a large-instance guest profile must put
 NUMA and a higher `NR_CPUS` back.
 
 One honest wart: `NUMA_BALANCING` is compiled into the host profiles while
