@@ -1,0 +1,39 @@
+name: kvmhost
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  # Config resolution is fast and catches the failure mode that matters:
+  # a fragment whose symbols no longer exist, or that Kconfig silently drops.
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ["7.2", "6.18.45"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: make image
+      - run: make KERNEL_VERSION=${{ matrix.kernel }} config
+      - uses: actions/upload-artifact@v4
+        with:
+          name: config-${{ matrix.kernel }}
+          path: out/kvmhost.config
+
+  build:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make image
+      - run: make build
+      - run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
+      - run: make smoke
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bzImage
+          path: |
+            out/bzImage
+            out/kvmhost.config

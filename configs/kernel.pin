@@ -1,0 +1,15 @@
+# The kernel this platform is built from.
+#
+# Default is the current longterm release.  Host kernels track LTS and carry
+# selective backports; they do not chase mainline, because every rebase is a
+# full requalification of the guest-facing surface (KVM, vhost, IOMMU, NIC
+# drivers) across the fleet.
+#
+# Override per-build:  make KERNEL_VERSION=7.2 build
+# Fragments are validated against both -- see `make validate-matrix`.
+KERNEL_VERSION=7.2
+KERNEL_BASE=v6.x
+
+# Known-good alternates (CI validates the fragment set against these):
+#   6.18.45  longterm  -- default, fleet track
+#   7.2      mainline  -- platform bring-up / new-silicon enablement only
