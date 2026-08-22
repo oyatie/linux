@@ -7,10 +7,10 @@ One kernel per role, not one kernel for the fleet. Each layer shares a base
 
 | Profile | Machine | Enabled symbols |
 |---|---|---|
-| `hypervisor` | KVM host, runs guest VMs on bare metal | 1601 |
-| `worker` | Runs tenant tasks in containers and sandboxes | 1579 |
-| `control-plane` | Replicated state machine owning cluster state | 1531 |
-| `scheduler` | One large CPU-bound placement process | 1519 |
+| `hypervisor` | KVM host, runs guest VMs on bare metal | 1608 |
+| `worker` | Runs tenant tasks in containers and sandboxes | 1586 |
+| `control-plane` | Replicated state machine owning cluster state | 1503 |
+| `scheduler` | One large CPU-bound placement process | 1460 |
 
 ```
 make PROFILE=worker build
