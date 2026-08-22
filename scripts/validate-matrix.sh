@@ -23,6 +23,9 @@ trusted-compute GPU=amd
 ch-guest
 ch-guest-k8s
 fc-guest
+hypervisor KARCH=arm64
+ch-guest KARCH=arm64
+fc-guest KARCH=arm64
 '
 
 fail=0

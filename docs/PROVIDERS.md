@@ -99,19 +99,15 @@ dangerous if the image lands on the wrong silicon. Building `CPU=amd` and
 deploying it on Intel gives you a kernel with L1TF and MDS **compiled out**.
 Tie the CPU fragment to the SKU in the build pipeline, not to a human.
 
-## ARM64 / RISC-V
+## ARM64
 
-Not supported today: the build is `ARCH=x86_64` throughout. But the fragment
-tree is less x86-bound than it looks — of 810 symbols named across all
-fragments, **79 (9%) are x86/PC-platform specific**. The rest (cgroups,
-namespaces, LSMs, KSPP hardening, filesystems, block, net, BPF, KVM core,
-live update) is architecture-neutral.
-
-So an ARM64 port (Graviton, Ampere, Grace) is a bounded piece of work rather
-than a rewrite: an `arch-arm64.config` replacing those ~79 symbols (SMMUv3
-instead of VT-d/AMD-Vi, GICv3/v4 instead of APIC, no MCE, ARM PMU, different
-mitigation set), an aarch64 toolchain in the container, and a re-run of the
-MSV analysis — every feature floor in `docs/MSV.md` was probed on x86.
+Done, as the `KARCH=arm64` axis: shared fragments went arch-neutral and the
+~80 silicon-specific symbols moved into `<name>.<arch>.config` siblings
+(SMMUv3 for VT-d/AMD-Vi, PL011 for the PC UART, PAuth/BTI/MTE and the BHB
+mitigation for CET/IBT and the x86 `MITIGATION_*` set, CPPC for pstate).
+The ship set resolves clean on both kernel tracks for both arches, and the
+asymmetries the port surfaced (no HVO, clang-only kernel BTI, no CCA yet)
+are recorded in `docs/LAYERS.md`. RISC-V remains out of scope.
 
 ## Profiles
 

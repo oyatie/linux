@@ -11,20 +11,46 @@ INITRD=${2:?}
 TIMEOUT=${TIMEOUT:-300}
 # q35 for anything that expects PCI/ACPI; `microvm` for the MMIO-only guest,
 # which has neither and must be booted by a VMM that speaks plain virtio-mmio.
+# On arm64 everything boots the `virt` machine, and on an Apple-silicon host
+# QEMU can use HVF -- so arm64 smokes run hardware-accelerated, not emulated.
 MACHINE=${MACHINE:-q35}
+KARCH=${KARCH:-x86_64}
+QEMU=qemu-system-x86_64
+CONSOLE=ttyS0
+ACCEL=""
+if [ "$KARCH" = "arm64" ]; then
+	QEMU=qemu-system-aarch64
+	MACHINE=virt
+	CONSOLE=ttyAMA0
+	CPU="cortex-a76"
+	if [ "$(uname -s)" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then
+		ACCEL="-accel hvf"
+		CPU=host
+	fi
+	# A host-expect kernel must prove /dev/kvm, and arm64 KVM initialises
+	# only when the kernel is entered at EL2.  HVF gives the guest EL1, so
+	# for host kernels we trade acceleration for TCG's virtualization=on,
+	# which emulates EL2.  Guest kernels keep HVF and its ~20x speedup.
+	if [ "${EXPECT:-host}" = "host" ]; then
+		MACHINE="virt,virtualization=on"
+		ACCEL=""
+		CPU=max
+	fi
+fi
 LOG=$(mktemp)
 
 echo "==> booting $BZIMAGE under QEMU (timeout ${TIMEOUT}s)"
-qemu-system-x86_64 \
+$QEMU \
 	-machine "$MACHINE" \
-	-cpu max \
+	$ACCEL \
+	-cpu "${CPU:-max}" \
 	-smp 2 \
 	-m 1024 \
 	-nographic \
 	-no-reboot \
 	-kernel "$BZIMAGE" \
 	-initrd "$INITRD" \
-	-append "console=ttyS0 panic=1 rdinit=/init printk.time=1 kvmhost.expect=${EXPECT:-host}" \
+	-append "console=$CONSOLE panic=1 rdinit=/init printk.time=1 kvmhost.expect=${EXPECT:-host}" \
 	>"$LOG" 2>&1 &
 qemu_pid=$!
 

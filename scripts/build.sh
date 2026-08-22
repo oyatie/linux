@@ -19,6 +19,23 @@ OUT=${OUT:-/out}
 JOBS=${JOBS:-$(nproc)}
 EXTRA=${KVMHOST_EXTRA:-}
 
+# --- Target architecture ----------------------------------------------------
+# x86_64 (Xeon/EPYC) or arm64 (Graviton/Ampere/Grace class).  The kernel tree
+# is shared; the object tree effectively rebuilds on an arch switch.
+KARCH=${KVMHOST_ARCH:-x86_64}
+case $KARCH in
+x86_64)
+	CROSS=x86_64-linux-gnu-
+	KIMG=bzImage KIMG_PATH=arch/x86/boot/bzImage ;;
+arm64)
+	# The container is aarch64-native; the triplet-prefixed tools are the
+	# native ones.  arm64 has no bzImage -- the bootable artifact is the
+	# uncompressed Image, which is also exactly what FC/CH load.
+	CROSS=aarch64-linux-gnu-
+	KIMG=Image KIMG_PATH=arch/arm64/boot/Image ;;
+*)	echo "unsupported KVMHOST_ARCH=$KARCH (x86_64|arm64)" >&2; exit 1 ;;
+esac
+
 vernum() { printf '%d%03d' "${1%%.*}" "$(echo "$1" | cut -d. -f2)"; }
 
 # Hard floor.  Below it, symbols would not fail -- Kconfig silently drops
@@ -42,16 +59,26 @@ profile_file="$REPO/profiles/$PROFILE.profile"
 base="00-core 15-vm-boot 20-storage 30-net 40-platform 50-security 55-kspp \
 60-observability 90-strip 95-no-legacy"
 
-add() { fragments="$fragments $REPO/configs/fragments/$1.config"; }
+# A fragment may have a per-arch sibling (<name>.<arch>.config) holding the
+# symbols that only exist on that architecture -- vendor KVM and mitigations
+# on x86, SMMU/PL011/BTI/PAuth on arm64.  It is appended right after its
+# parent so the shared file stays architecture-neutral and check-config never
+# sees a request for a symbol the target cannot have.
+add() {
+	fragments="$fragments $REPO/configs/fragments/$1.config"
+	[ -f "$REPO/configs/fragments/$1.$KARCH.config" ] &&
+		fragments="$fragments $REPO/configs/fragments/$1.$KARCH.config"
+	true
+}
 fragments=""
 for f in $base; do add "$f"; done
 
 # --- platform: metal owns the machine; vm owns nothing ----------------------
 platform=${KVMHOST_PLATFORM:-${PLATFORM:-metal}}
 if [ "$platform" != "metal" ]; then
-	f="$REPO/configs/fragments/platform-$platform.config"
-	[ -f "$f" ] || { echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
-	fragments="$fragments $f"
+	[ -f "$REPO/configs/fragments/platform-$platform.config" ] ||
+		{ echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
+	add "platform-$platform"
 fi
 
 # --- role layers -------------------------------------------------------------
@@ -61,10 +88,14 @@ for f in ${LAYERS:-}; do add "$f"; done
 # KVM/IOMMU/EDAC/pstate stack AND its mitigations -- tie to the SKU in the
 # pipeline, never to a human (CPU=amd on Intel silicon = L1TF compiled out).
 cpu=${KVMHOST_CPU:-${CPU:-both}}
+if [ "$cpu" != "both" ] && [ "$KARCH" != "x86_64" ]; then
+	echo "CPU=intel|amd is an x86 vendor split; it means nothing on $KARCH" >&2
+	exit 1
+fi
 if [ "$cpu" != "both" ]; then
-	f="$REPO/configs/fragments/cpu-$cpu.config"
-	[ -f "$f" ] || { echo "no such CPU fragment: cpu-$cpu.config" >&2; exit 1; }
-	fragments="$fragments $f"
+	[ -f "$REPO/configs/fragments/cpu-$cpu.config" ] ||
+		{ echo "no such CPU fragment: cpu-$cpu.config" >&2; exit 1; }
+	add "cpu-$cpu"
 fi
 
 # --- GPUs: only for first-party training metal (trusted-compute GPU=...).
@@ -80,9 +111,9 @@ fi
 if [ -n "$gpu" ]; then
 	add "hw-gpu-common"
 	for g in $gpu; do
-		f="$REPO/configs/fragments/hw-gpu-$g.config"
-		[ -f "$f" ] || { echo "no such GPU fragment: hw-gpu-$g.config" >&2; exit 1; }
-		fragments="$fragments $f"
+		[ -f "$REPO/configs/fragments/hw-gpu-$g.config" ] ||
+			{ echo "no such GPU fragment: hw-gpu-$g.config" >&2; exit 1; }
+		add "hw-gpu-$g"
 	done
 fi
 
@@ -90,9 +121,11 @@ fi
 accel=${KVMHOST_ACCEL:-${ACCEL:-none}}
 [ "$accel" = "none" ] && accel=""
 for a in $accel; do
-	f="$REPO/configs/fragments/hw-accel-$a.config"
-	[ -f "$f" ] || { echo "no such accelerator fragment: hw-accel-$a.config" >&2; exit 1; }
-	fragments="$fragments $f"
+	case $a in intel-*) [ "$KARCH" = "x86_64" ] || {
+		echo "hw-accel-$a is an x86 PCIe part; not on $KARCH" >&2; exit 1; }; esac
+	[ -f "$REPO/configs/fragments/hw-accel-$a.config" ] ||
+		{ echo "no such accelerator fragment: hw-accel-$a.config" >&2; exit 1; }
+	add "hw-accel-$a"
 done
 
 # --- NICs: host SKUs pin what the fleet buys (profile NICS=); guests are
@@ -105,9 +138,9 @@ for nic in $nics; do
 		echo "it); it never belongs in a bare-metal image.  Use PLATFORM=vm." >&2
 		exit 1
 	fi
-	f="$REPO/configs/fragments/hw-nic-$nic.config"
-	[ -f "$f" ] || { echo "no such NIC fragment: hw-nic-$nic.config" >&2; exit 1; }
-	fragments="$fragments $f"
+	[ -f "$REPO/configs/fragments/hw-nic-$nic.config" ] ||
+		{ echo "no such NIC fragment: hw-nic-$nic.config" >&2; exit 1; }
+	add "hw-nic-$nic"
 done
 
 # --- per-version deltas ------------------------------------------------------
@@ -130,20 +163,22 @@ for f in ${OVERRIDES:-} $EXTRA; do add "$f"; done
 cd "$SRC"
 
 echo "==> profile: $PROFILE -- $DESC"
-echo "==> kernel:  $KERNEL_VERSION  platform: $platform  cpu: $cpu"
+echo "==> kernel:  $KERNEL_VERSION  arch: $KARCH  platform: $platform  cpu: $cpu"
 echo "==> baseline: allnoconfig (nothing is on until a fragment turns it on)"
-make -s ARCH=x86_64 allnoconfig >/dev/null
+make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" allnoconfig >/dev/null
 
 echo "==> merging $(echo "$fragments" | wc -w) fragments"
 ./scripts/kconfig/merge_config.sh -m -O "$SRC" .config $fragments >/tmp/merge.log 2>&1 ||
 	{ cat /tmp/merge.log; exit 1; }
-make -s ARCH=x86_64 olddefconfig >/dev/null
+make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" olddefconfig >/dev/null
 
 echo "==> verifying intent survived Kconfig resolution"
 sh "$REPO/scripts/check-config.sh" "$SRC/.config" $fragments
 
 mkdir -p "$OUT"
-cp "$SRC/.config" "$OUT/$PROFILE.config"
+cfgname=$PROFILE
+[ "$KARCH" != "x86_64" ] && cfgname="$PROFILE-$KARCH"
+cp "$SRC/.config" "$OUT/$cfgname.config"
 
 if [ "${CONFIG_ONLY:-0}" = "1" ]; then
 	echo "==> CONFIG_ONLY=1, stopping before compile"
@@ -151,18 +186,20 @@ if [ "${CONFIG_ONLY:-0}" = "1" ]; then
 fi
 
 echo "==> building with $JOBS jobs"
-make -s ARCH=x86_64 -j"$JOBS" bzImage
+make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" -j"$JOBS" "$KIMG"
 
-cp "$SRC/arch/x86/boot/bzImage" "$OUT/bzImage-$PROFILE"
-size=$(stat -c %s "$OUT/bzImage-$PROFILE")
-printf '==> bzImage-%s: %s bytes (%s KiB)\n' "$PROFILE" "$size" "$((size / 1024))"
+suffix=$PROFILE
+[ "$KARCH" != "x86_64" ] && suffix="$PROFILE-$KARCH"
+cp "$SRC/$KIMG_PATH" "$OUT/$KIMG-$suffix"
+size=$(stat -c %s "$OUT/$KIMG-$suffix")
+printf '==> %s-%s: %s bytes (%s KiB)\n' "$KIMG" "$suffix" "$size" "$((size / 1024))"
 
 # Guest profiles also ship a stripped ELF vmlinux: Firecracker boots ELF (or
 # PVH), and Cloud Hypervisor prefers it.  A bzImage-only artifact cannot even
 # be loaded by the plant VMMs.
 if [ "${ARTIFACT:-}" = "vmlinux" ]; then
-	"${CROSS_COMPILE:-}strip" -o "$OUT/vmlinux-$PROFILE" vmlinux
-	vsize=$(stat -c %s "$OUT/vmlinux-$PROFILE")
+	"${CROSS}strip" -o "$OUT/vmlinux-$suffix" vmlinux
+	vsize=$(stat -c %s "$OUT/vmlinux-$suffix")
 	printf '==> vmlinux-%s: %s bytes (%s KiB, ELF for FC/CH direct boot)\n' \
-		"$PROFILE" "$vsize" "$((vsize / 1024))"
+		"$suffix" "$vsize" "$((vsize / 1024))"
 fi

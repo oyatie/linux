@@ -24,6 +24,17 @@ fail=0
 unused=""
 for f in configs/fragments/*.config; do
 	n=$(basename "$f" .config)
+	# Per-arch siblings (<name>.<arch>.config) are reachable iff their parent
+	# is; build.sh appends them automatically.
+	case $n in
+	(*.x86_64|*.arm64)
+		parent=${n%.*}
+		[ -f "configs/fragments/$parent.config" ] && continue
+		echo "orphan per-arch fragment (no parent): $f"
+		fail=1
+		continue
+		;;
+	esac
 	case " $base " in *" $n "*) continue;; esac
 	echo "$fromprofiles" | grep -qx "$n" && continue
 	echo "$fromprofiles" | grep -qx "${n#platform-}" && continue

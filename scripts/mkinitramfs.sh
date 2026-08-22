@@ -8,7 +8,12 @@ set -eu
 
 OUT=${OUT:-/out}
 WORK=$(mktemp -d)
-CC=${CROSS_COMPILE:-x86_64-linux-gnu-}gcc
+KARCH=${KVMHOST_ARCH:-x86_64}
+case $KARCH in
+arm64) CROSS=aarch64-linux-gnu- ;;
+*)     CROSS=x86_64-linux-gnu-  ;;
+esac
+CC=${CROSS}gcc
 
 mkdir -p "$WORK/root/proc" "$WORK/root/sys/kernel/security" "$WORK/root/dev"
 
@@ -124,9 +129,9 @@ int main(void)
 EOF
 
 "$CC" -static -Os -o "$WORK/root/init" "$WORK/init.c"
-"${CROSS_COMPILE:-x86_64-linux-gnu-}strip" "$WORK/root/init"
+"${CROSS}strip" "$WORK/root/init"
 
 mkdir -p "$OUT"
-(cd "$WORK/root" && find . | cpio -o -H newc --quiet | gzip -9) >"$OUT/initramfs.cpio.gz"
+(cd "$WORK/root" && find . | cpio -o -H newc --quiet | gzip -9) >"$OUT/initramfs-$KARCH.cpio.gz"
 rm -rf "$WORK"
-printf '==> initramfs: %s bytes\n' "$(stat -c %s "$OUT/initramfs.cpio.gz")"
+printf '==> initramfs-%s: %s bytes\n' "$KARCH" "$(stat -c %s "$OUT/initramfs-$KARCH.cpio.gz")"

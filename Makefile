@@ -15,6 +15,8 @@ OUT            := $(CURDIR)/out
 # set JOBS=N here only to override that.
 JOBS           ?=
 PROFILE        ?= hypervisor
+# Target architecture: x86_64 (default) or arm64 (Graviton/Ampere/Grace).
+KARCH          ?= x86_64
 KVMHOST_EXTRA  ?=
 # Which NIC families to build in.  Empty = all of them (portable image).
 KVMHOST_NICS   ?=
@@ -32,6 +34,7 @@ DOCKER_RUN = docker run --rm \
 	-e KVMHOST_GPU="$(GPU)" \
 	-e KVMHOST_CPU="$(CPU)" \
 	-e KVMHOST_PLATFORM="$(PLATFORM)" \
+	-e KVMHOST_ARCH="$(KARCH)" \
 	-e PROFILE="$(PROFILE)" \
 	-e MSV="$(MSV)" \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
@@ -70,6 +73,7 @@ help:
 	@echo "  GPU=nvidia|amd make build            add GPU support (see docs/PROVIDERS.md)"
 	@echo "  CPU=intel|amd make build             single-vendor fleet (default: both)"
 	@echo "  PLATFORM=vm make build               this kernel runs inside a VM, not on metal"
+	@echo "  KARCH=arm64 make build               Graviton/Ampere-class target"
 
 image:
 	docker build -t $(IMAGE) -f docker/Dockerfile docker
@@ -137,16 +141,17 @@ validate-all: | $(OUT)
 
 initramfs: | $(OUT)
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro -v $(OUT):/out \
-		$(IMAGE) /repo/scripts/mkinitramfs.sh
+		-e KVMHOST_ARCH=$(KARCH) $(IMAGE) /repo/scripts/mkinitramfs.sh
 
 # Guest profiles assert a guest-shaped kernel (no KVM, no modules); fc-guest
 # boots on QEMU's microvm machine, the faithful stand-in for Firecracker's
 # virtio-mmio world.  scripts/fc-smoke.sh runs the REAL VMM on a Linux+KVM box.
 SMOKE_MACHINE = $(if $(filter fc-guest,$(PROFILE)),microvm,q35)
 SMOKE_EXPECT  = $(if $(filter ch-guest ch-guest-k8s fc-guest,$(PROFILE)),guest,host)
+SMOKE_KERNEL  = $(if $(filter arm64,$(KARCH)),$(OUT)/Image-$(PROFILE)-arm64,$(OUT)/bzImage-$(PROFILE))
 smoke: initramfs
-	MACHINE=$(SMOKE_MACHINE) EXPECT=$(SMOKE_EXPECT) \
-		./scripts/qemu-smoke.sh $(OUT)/bzImage-$(PROFILE) $(OUT)/initramfs.cpio.gz
+	KARCH=$(KARCH) MACHINE=$(SMOKE_MACHINE) EXPECT=$(SMOKE_EXPECT) \
+		./scripts/qemu-smoke.sh $(SMOKE_KERNEL) $(OUT)/initramfs-$(KARCH).cpio.gz
 
 smoke-fc:
 	./scripts/fc-smoke.sh $(OUT)/vmlinux-fc-guest $(OUT)/initramfs.cpio.gz

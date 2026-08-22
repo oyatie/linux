@@ -42,6 +42,23 @@ Every kernel is `profile × platform × cpu × hardware knobs`:
   fleet buys (`NICS="mellanox"`); guests are virtio-only; `ena` is what a
   *guest* sees on EC2 and the build refuses it on metal.
 
+## Architecture
+
+`KARCH=arm64` builds the same SKUs for Graviton/Ampere/Grace-class machines.
+The port surfaced real asymmetries, recorded in the per-arch fragments rather
+than papered over:
+
+- **No HVO on arm64** — the hugetlb vmemmap optimization is x86/loongarch/
+  riscv-only upstream, so the struct-page RAM recovery that helps 1G-page
+  fleets on x86 does not exist there. The memory math differs.
+- **Kernel BTI is clang-only** (`depends on !CC_IS_GCC`); with a GCC
+  toolchain, arm64 gets userspace BTI + PAuth + MTE, not kernel BTI.
+- **No SEV/TDX counterpart yet** — Arm CCA's host side is not complete
+  upstream at our floors; `layer-hypervisor.arm64.config` says so explicitly.
+- **RAS converges on APEI/GHES** — the vendor EDAC drivers and the
+  corrected-error collector are x86 MCE machinery; arm64 reports through
+  the same ACPI path both arches already share.
+
 ## Numbers
 
 Regenerate with `make validate-all`; representative counts (`=y`, v1 track):

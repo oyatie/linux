@@ -30,9 +30,17 @@ no GPU driver), `trusted-compute` (first-party metal, IOMMU passthrough;
 `GPU=nvidia|amd` makes it a training node), `ch-guest-k8s` (containers inside
 a CH guest, if we sell kube).
 
-Orthogonal knobs: `CPU=intel|amd`, `GPU=nvidia|amd` (training metal only),
-`KVMHOST_NICS=...`, `ACCEL=intel-dsa|intel-qat`, `PLATFORM=vm`,
+Orthogonal knobs: `KARCH=x86_64|arm64`, `CPU=intel|amd` (x86 only),
+`GPU=nvidia|amd` (training metal only), `KVMHOST_NICS=...`,
+`ACCEL=intel-dsa|intel-qat` (x86 only), `PLATFORM=vm`,
 `KVMHOST_EXTRA=opt-windows|opt-rt|opt-lowmem|opt-fastboot`.
+
+**Architecture is a first-class axis.** Shared fragments are arch-neutral;
+anything silicon-specific lives in a `<name>.<arch>.config` sibling appended
+automatically — vendor KVM, SEV/TDX and the `MITIGATION_*` set on x86;
+SMMUv3, PL011, PAuth/BTI/MTE and CPPC on arm64. `make KARCH=arm64 build`
+produces `out/Image-<profile>-arm64`, and the validation matrix resolves the
+arm64 ship set against both kernel tracks alongside x86.
 
 The builder needs **~8 GB of RAM**. Two steps are single-process memory hogs:
 linking `vmlinux.o` with `DEBUG_INFO_BTF` (full DWARF in every object), and
