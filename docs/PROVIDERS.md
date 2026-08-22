@@ -33,6 +33,30 @@ collective. That forces three things the other layers refuse:
 card presents it *to instances*. A worker or microVM running on EC2 needs
 `KVMHOST_NICS=ena`; a bare-metal host never does.
 
+## Most servers are not GPU servers
+
+Worth stating plainly, because AI-fleet writing tends to imply otherwise: even
+at an AI-heavy operator the accelerator fleet is a minority of machines. The
+serving, storage, control-plane and hypervisor fleets dwarf it in machine
+count, and none of them should carry a line of GPU code.
+
+That is enforced, not assumed:
+
+| Profile | `CONFIG_DRM` | GPU fragment |
+|---|---|---|
+| `hypervisor`, `hypervisor-dpu` | off | none |
+| `worker`, `trusted-compute` | off | none |
+| `control-plane`, `scheduler` | off | none |
+| `microvm`, `microvm-mmio` | off | none |
+| `gpu-node` | off unless `GPU=amd` | **`GPU=` required** |
+
+`PROFILE=gpu-node` now *fails the build* without an explicit `GPU=nvidia` or
+`GPU=amd`, because a kernel that looks like an accelerator node and cannot
+drive an accelerator is a deploy-time surprise. And if what you actually want
+is a CPU node on an RDMA fabric -- a storage or HPC node with no GPUs at all --
+that is `PROFILE=worker KVMHOST_EXTRA=opt-rdma`, which shares none of the GPU
+machinery.
+
 ## Separating what needs a GPU from what does not
 
 GPU support is never inherited. It is selected per fleet, like the NICs, and

@@ -79,6 +79,16 @@ for g in $gpu; do
 	fragments="$fragments $f"
 done
 
+# A GPU node with no GPU fragment is a mistake worth catching at build time
+# rather than at deploy time: it produces a kernel that looks like an
+# accelerator node and cannot drive an accelerator.
+if [ "$PROFILE" = "gpu-node" ] && [ -z "$gpu" ]; then
+	echo "PROFILE=gpu-node requires GPU=nvidia or GPU=amd" >&2
+	echo "(without it you have a CPU node with an RDMA fabric, which is a" >&2
+	echo " legitimate thing to want -- use PROFILE=worker KVMHOST_EXTRA=opt-rdma)" >&2
+	exit 1
+fi
+
 # Hardware accelerators: per-fleet PCIe devices, selected like the NICs.  A
 # driver for an accelerator the machine does not have is the same mistake as a
 # driver for a NIC it does not have.

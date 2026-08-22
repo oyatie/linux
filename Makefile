@@ -130,7 +130,11 @@ validate-all: | $(OUT)
 	for p in profiles/*.profile; do \
 		n=$$(basename $$p .profile); \
 		printf '\n=========== %s @ linux-$(KERNEL_VERSION) ===========\n' "$$n"; \
-		$(MAKE) --no-print-directory PROFILE=$$n config || fail=1; \
+		if [ "$$n" = "gpu-node" ]; then \
+			$(MAKE) --no-print-directory PROFILE=$$n GPU=nvidia config || fail=1; \
+		else \
+			$(MAKE) --no-print-directory PROFILE=$$n config || fail=1; \
+		fi; \
 	done; \
 	exit $$fail
 
