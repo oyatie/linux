@@ -42,14 +42,18 @@ base="00-core 15-vm-boot 20-storage 30-net 40-platform 50-security 55-kspp \
 60-observability 70-liveupdate 90-strip"
 
 fragments=""
-for f in $base ${LAYERS:-} ${OVERRIDES:-}; do
+for f in $base ${LAYERS:-}; do
 	fragments="$fragments $REPO/configs/fragments/$f.config"
 done
 
 # NIC drivers: one fragment per vendor.  The default builds all of them so a
 # generic image boots on anything; a fleet that knows its hardware should set
 # KVMHOST_NICS to just what it buys.
-for nic in ${KVMHOST_NICS:-mellanox intel broadcom}; do
+# A profile may declare NICS (e.g. "none" for a guest); KVMHOST_NICS in the
+# environment overrides it.
+nics=${KVMHOST_NICS:-${NICS:-mellanox intel broadcom}}
+[ "$nics" = "none" ] && nics=""
+for nic in $nics; do
 	f="$REPO/configs/fragments/hw-nic-$nic.config"
 	[ -f "$f" ] || { echo "no such NIC fragment: hw-nic-$nic.config" >&2; exit 1; }
 	fragments="$fragments $f"
@@ -63,8 +67,12 @@ if [ -f "$REPO/configs/fragments/kver-$kver.config" ]; then
 	fragments="$fragments $REPO/configs/fragments/kver-$kver.config"
 fi
 
-for e in $EXTRA; do
-	fragments="$fragments $REPO/configs/fragments/$e.config"
+# OVERRIDES last (after the NIC and version fragments), because an override
+# that a later fragment can undo is not an override.  This bit us: opt-dpu
+# strips the tc action layer, and hw-nic-mellanox re-requested the mlx5 TC
+# offload that depends on it.
+for f in ${OVERRIDES:-} $EXTRA; do
+	fragments="$fragments $REPO/configs/fragments/$f.config"
 done
 
 cd "$SRC"

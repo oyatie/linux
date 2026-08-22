@@ -21,6 +21,8 @@ make validate-all             # resolve + verify every profile
 | `worker` | Runs tenant tasks in containers and sandboxes |
 | `control-plane` | Replicated state machine owning cluster state |
 | `scheduler` | One large CPU-bound placement process |
+| `hypervisor-dpu` | KVM host whose dataplane lives on a DPU |
+| `microvm` | Guest kernel (Firecracker/crosvm class) |
 
 The builder needs **~8 GB of RAM**. Two steps are single-process memory hogs:
 linking `vmlinux.o` with `DEBUG_INFO_BTF` (full DWARF in every object), and
@@ -78,6 +80,7 @@ docs/LAYERS.md               what differs between roles, and why
 docs/LIVEUPDATE.md           livepatch / kexec handover / drain, per layer
 docs/MSV.md                  minimum kernel version, derived per feature
 docs/COMPARISON.md           measured against Talos, Alpine, Rocky, UEK
+docs/CHECKLISTS.md           capability audits + what they caught
 docs/TUNING.md               boot cmdline and runtime policy for the fleet
 ```
 
