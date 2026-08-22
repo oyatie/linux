@@ -31,6 +31,7 @@ DOCKER_RUN = docker run --rm \
 	-e KVMHOST_ACCEL="$(ACCEL)" \
 	-e KVMHOST_GPU="$(GPU)" \
 	-e KVMHOST_CPU="$(CPU)" \
+	-e KVMHOST_PLATFORM="$(PLATFORM)" \
 	-e PROFILE="$(PROFILE)" \
 	-e MSV="$(MSV)" \
 	$(IMAGE)
@@ -65,6 +66,7 @@ help:
 	@echo "  ACCEL=intel-dsa make build           add an accelerator (DSA/IAA, QAT)"
 	@echo "  GPU=nvidia|amd make build            add GPU support (see docs/PROVIDERS.md)"
 	@echo "  CPU=intel|amd make build             single-vendor fleet (default: both)"
+	@echo "  PLATFORM=vm make build               this kernel runs inside a VM, not on metal"
 
 image:
 	docker build -t $(IMAGE) -f docker/Dockerfile docker

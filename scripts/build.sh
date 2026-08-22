@@ -102,6 +102,16 @@ fi
 # that a later fragment can undo is not an override.  This bit us: opt-dpu
 # strips the tc action layer, and hw-nic-mellanox re-requested the mlx5 TC
 # offload that depends on it.
+# PLATFORM: metal (owns the machine) or vm (runs inside one).  Applied after
+# the role's overrides, because where the kernel runs beats what it does --
+# a control-plane node in a VM has no BMC no matter what its role wants.
+platform=${KVMHOST_PLATFORM:-${PLATFORM:-metal}}
+if [ "$platform" != "metal" ]; then
+	f="$REPO/configs/fragments/platform-$platform.config"
+	[ -f "$f" ] || { echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
+	fragments="$fragments $f"
+fi
+
 for f in ${OVERRIDES:-} $EXTRA; do
 	fragments="$fragments $REPO/configs/fragments/$f.config"
 done
