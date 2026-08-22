@@ -14,7 +14,10 @@ OUT            := $(CURDIR)/out
 # -j there gets cc1 OOM-killed.  build.sh defaults to the container's nproc;
 # set JOBS=N here only to override that.
 JOBS           ?=
+PROFILE        ?= hypervisor
 KVMHOST_EXTRA  ?=
+# Which NIC families to build in.  Empty = all of them (portable image).
+KVMHOST_NICS   ?=
 
 DOCKER_RUN = docker run --rm \
 	-v $(SRC_VOLUME):/build \
@@ -24,12 +27,21 @@ DOCKER_RUN = docker run --rm \
 	-e SRC=/build/linux-$(KERNEL_VERSION) \
 	$(if $(JOBS),-e JOBS=$(JOBS)) \
 	-e KVMHOST_EXTRA="$(KVMHOST_EXTRA)" \
+	-e KVMHOST_NICS="$(KVMHOST_NICS)" \
+	-e PROFILE="$(PROFILE)" \
 	$(IMAGE)
 
-.PHONY: help image fetch config build validate validate-matrix menuconfig config-diff initramfs smoke shell clean distclean
+.PHONY: help image fetch config build validate validate-matrix validate-all menuconfig config-diff initramfs smoke shell clean distclean
 
 help:
-	@echo "kvmhost -- KVM host kernel, currently pinned to linux-$(KERNEL_VERSION)"
+	@echo "kvmhost -- fleet kernels, currently pinned to linux-$(KERNEL_VERSION)"
+	@echo
+	@echo "Profiles (PROFILE=<name>, default $(PROFILE)):"
+	@for p in profiles/*.profile; do \
+		n=$$(basename $$p .profile); \
+		d=$$(sed -n 's/^DESC="\(.*\)"/\1/p' $$p); \
+		printf "  %-14s %s\n" "$$n" "$$d"; \
+	done
 	@echo
 	@echo "  make image            build the container toolchain"
 	@echo "  make fetch            download + unpack the kernel source"
@@ -37,6 +49,7 @@ help:
 	@echo "  make build            config + compile bzImage into out/"
 	@echo "  make validate         config-only check against the pinned version"
 	@echo "  make validate-matrix  same, against every version in configs/kernel.pin"
+	@echo "  make validate-all     every profile x every kernel version"
 	@echo "  make menuconfig       explore interactively on top of the resolved config"
 	@echo "  make config-diff      show what menuconfig changed, as fragment lines"
 	@echo "  make smoke            boot the built kernel under QEMU and assert on it"
@@ -44,6 +57,7 @@ help:
 	@echo
 	@echo "  KERNEL_VERSION=7.2 make build      build against mainline instead"
 	@echo "  KVMHOST_EXTRA=opt-guest make build add optional fragments"
+	@echo "  KVMHOST_NICS=mellanox make build     build only your fleet's NICs"
 
 image:
 	docker build -t $(IMAGE) -f docker/Dockerfile docker
@@ -85,12 +99,23 @@ config-diff:
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro -v $(OUT):/out \
 		-e SRC=/build/linux-$(KERNEL_VERSION) $(IMAGE) /repo/scripts/config-diff.sh
 
+validate-all: | $(OUT)
+	@fail=0; \
+	for v in $$(sed -n 's/^#   \([0-9][0-9.]*\) .*/\1/p' configs/kernel.pin); do \
+		for p in profiles/*.profile; do \
+			n=$$(basename $$p .profile); \
+			printf '\n=========== %s @ linux-%s ===========\n' "$$n" "$$v"; \
+			$(MAKE) --no-print-directory KERNEL_VERSION=$$v PROFILE=$$n config || fail=1; \
+		done; \
+	done; \
+	exit $$fail
+
 initramfs: | $(OUT)
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro -v $(OUT):/out \
 		$(IMAGE) /repo/scripts/mkinitramfs.sh
 
 smoke: initramfs
-	./scripts/qemu-smoke.sh $(OUT)/bzImage $(OUT)/initramfs.cpio.gz
+	./scripts/qemu-smoke.sh $(OUT)/bzImage-$(PROFILE) $(OUT)/initramfs.cpio.gz
 
 shell:
 	docker run --rm -it -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro \

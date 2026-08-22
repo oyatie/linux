@@ -9,7 +9,7 @@
 set -eu
 
 SRC=${SRC:-/src}
-BASE=${BASE:-/out/kvmhost.config}
+BASE=${BASE:-/out/${PROFILE:-hypervisor}.config}
 cur="$SRC/.config"
 
 [ -f "$BASE" ] || { echo "no baseline at $BASE -- run 'make config' first" >&2; exit 1; }
