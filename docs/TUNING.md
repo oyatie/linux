@@ -62,6 +62,8 @@ kernel.panic_on_oops = 1
 kernel.softlockup_panic = 1
 # BPF stays a host-agent tool.
 kernel.unprivileged_bpf_disabled = 1
+# NB: enforced policy ships as files in configs/sysctl.d/ and is installed by
+# the image build -- this document explains it, the image enforces it.
 net.core.bpf_jit_harden = 1
 # Networking for a host carrying tenant traffic.
 net.core.default_qdisc = fq
@@ -70,10 +72,10 @@ net.core.default_qdisc = fq
 # cubic.  Verify end-to-end before enabling, and fall back to bbr if not.
 net.ipv4.tcp_ecn = 1
 net.ipv4.tcp_congestion_control = dctcp
-# Worker nodes running untrusted tenant code: keep io_uring for the agent,
-# deny it to tenants (0=on, 1=restricted to CAP_SYS_ADMIN/io_uring_group,
-# 2=off).  See docs/CHALLENGE.md for why this is a sysctl and not a strip.
-kernel.io_uring_disabled = 1
+# io_uring is per-SKU: the HOST keeps it enabled (Cloud Hypervisor's block
+# datapath uses it; host userspace is only agent + VMM).  The kube-node guest
+# fences it to CAP_SYS_ADMIN/io_uring_group so tenant containers cannot reach
+# it -- configs/sysctl.d/ch-guest-k8s.conf, installed by that image.
 # A VMM core dump is guest memory written to disk.
 fs.suid_dumpable = 0
 net.core.rmem_max = 134217728

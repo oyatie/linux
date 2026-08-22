@@ -28,6 +28,7 @@ cat >"$WORK/init.c" <<'EOF'
 #include <unistd.h>
 
 static int failures;
+static int guest;   /* kvmhost.expect=guest on the command line */
 
 static int slurp(const char *path, char *buf, size_t len)
 {
@@ -85,10 +86,20 @@ int main(void)
 	mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
 	mount("securityfs", "/sys/kernel/security", "securityfs", 0, NULL);
 
-	printf("\nKVMHOST init: userspace reached\n");
+	{
+		char cl[1024] = "";
+		slurp("/proc/cmdline", cl, sizeof(cl));
+		guest = strstr(cl, "kvmhost.expect=guest") != NULL;
+	}
+	printf("\nKVMHOST init: userspace reached (expect=%s)\n",
+	       guest ? "guest" : "host");
 
 	want_present("version", "/proc/sys/kernel/osrelease", NULL);
-	want_present("kvm-device", "/sys/class/misc/kvm/dev", NULL);
+	if (guest)
+		/* Guests have no KVM of their own -- the sandbox is a layer down. */
+		want_absent("no-kvm", "/sys/class/misc/kvm/dev", "guest kernel");
+	else
+		want_present("kvm-device", "/sys/class/misc/kvm/dev", NULL);
 	want_present("nr-cpus", "/sys/devices/system/cpu/kernel_max", NULL);
 	want_present("thp-madvise", "/sys/kernel/mm/transparent_hugepage/enabled",
 		     "[madvise]");
@@ -96,8 +107,13 @@ int main(void)
 	want_present("spectre-v2", "/sys/devices/system/cpu/vulnerabilities/spectre_v2",
 		     NULL);
 	want_absent("no-swap", "/proc/swaps", "CONFIG_SWAP=n");
-	want_absent("no-modules", "/proc/sys/kernel/modules_disabled",
-		    "CONFIG_MODULES=n");
+	if (guest)
+		want_absent("no-modules", "/proc/sys/kernel/modules_disabled",
+			    "CONFIG_MODULES=n");
+	else
+		/* Hosts carry the loader for livepatch -- but only signed. */
+		want_present("modules-sig-forced",
+			     "/sys/module/module/parameters/sig_enforce", "Y");
 	want_absent("no-devmem", "/dev/mem", "CONFIG_DEVMEM=n");
 
 	printf(failures ? "KVMHOST SMOKE-FAIL\n" : "KVMHOST SMOKE-OK\n");

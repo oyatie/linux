@@ -1,12 +1,19 @@
 # Minimum supported version
 
-**MSV = 7.0.** Enforced: `make` refuses to build below it, before it downloads
-anything.
+Two numbers, two jobs:
 
-The floor is not a preference. It is the maximum over the floors of every
-feature the platform actually depends on, and it is derived rather than
-remembered — `scripts/feature-floor.sh` probes each symbol's defining Kconfig
-at each release tag. Regenerate with `make msv`.
+- **`MSV=6.18` — the hard floor.** Below it the v1 feature set (iommufd +
+  VFIO cdev, KVM TDX, `PREEMPT_LAZY`, KHO's baseline) starts silently
+  falling out of the image. `make` refuses to build below it, before
+  downloading anything.
+- **`LUO_FLOOR=7.0` — the destination gate.** The Live Update Orchestrator
+  and memfd handover do not exist below 7.0, so host profiles built on the
+  v1 LTS track simply do not get the `70-liveupdate` fragment — the build
+  says so, and the update story there is drain + livepatch. This is a
+  feature gate, not a floor: **v1 deliberately ships below it.**
+
+Both are derived, not remembered — `scripts/feature-floor.sh` probes each
+symbol's defining Kconfig at each release tag. Regenerate with `make msv`.
 
 ## Per-feature floors
 
@@ -32,9 +39,14 @@ Three features set the floor, and they are the same feature in three parts:
 **live update**. Everything else this platform uses has been available since
 6.6 or earlier.
 
-## Why there is no LTS track
+## History: the tree briefly had no LTS track
 
-The repo previously validated 6.18 LTS alongside mainline. That is dropped.
+An earlier revision dropped LTS entirely and pinned 7.2, on the grounds that
+an LTS build silently loses live update. The product audit reversed that:
+a v1 plant consumes stable LTS, and live update is the *destination*, so the
+LTS track returned as the default with the LUO gap made explicit (the
+`LIVEUPDATE` gate) instead of silent. The mechanism that made the original
+mistake visible — `check-config.sh` — is unchanged.
 
 An LTS build below the floor does not fail — it silently produces a kernel
 without live update, because Kconfig drops symbols that do not exist yet.

@@ -24,7 +24,7 @@ qemu-system-x86_64 \
 	-no-reboot \
 	-kernel "$BZIMAGE" \
 	-initrd "$INITRD" \
-	-append "console=ttyS0 panic=1 rdinit=/init printk.time=1" \
+	-append "console=ttyS0 panic=1 rdinit=/init printk.time=1 kvmhost.expect=${EXPECT:-host}" \
 	>"$LOG" 2>&1 &
 qemu_pid=$!
 
@@ -40,6 +40,12 @@ while kill -0 "$qemu_pid" 2>/dev/null; do
 	sleep 2
 	waited=$((waited + 2))
 done
+# An ACPI-less guest (fc-guest) cannot power off -- reboot() halts and QEMU
+# stays resident -- so once the marker is in the log, the VM is done and we
+# reap it ourselves instead of waiting on an exit that cannot come.
+if kill -0 "$qemu_pid" 2>/dev/null; then
+	kill "$qemu_pid" 2>/dev/null || true
+fi
 wait "$qemu_pid" 2>/dev/null || true
 
 echo

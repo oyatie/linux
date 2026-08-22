@@ -1,3 +1,9 @@
+> **Historical record.** This audit predates the host/guest restructure: the
+> `worker`, `control-plane` and `scheduler` metal profiles it names were
+> retired (those workloads run as guests on `ch-guest`; the container stack
+> survives as `layer-containers` in `trusted-compute` and `ch-guest-k8s`).
+> The findings and the method stand; the profile names do not.
+
 # Adversarial pass
 
 Every capability in `scripts/audit.sh`, asked the same three questions: **do we

@@ -5,37 +5,47 @@ on:
   pull_request:
 
 jobs:
-  # Config resolution is fast and catches the failure mode that matters:
-  # a fragment whose symbols no longer exist, or that Kconfig silently drops.
-  validate:
+  hygiene:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        profile: [hypervisor, hypervisor-dpu, worker, trusted-compute,
-                  control-plane, scheduler, microvm, microvm-mmio]
     steps:
       - uses: actions/checkout@v4
       - run: make unused
+
+  # The full shippable matrix (profile x knobs x both kernel tracks),
+  # config-resolution only -- this is where symbol drift and dependency
+  # breakage show up, and it is cheap.
+  validate:
+    needs: hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
       - run: make image
-      - run: make PROFILE=${{ matrix.profile }} config
+      - run: make validate-all
       - uses: actions/upload-artifact@v4
         with:
-          name: config-${{ matrix.profile }}
-          path: out/${{ matrix.profile }}.config
+          name: resolved-configs
+          path: out/*.config
 
+  # Compile + boot the v1 ship set.  QEMU q35 stands in for CH, QEMU's
+  # microvm machine for Firecracker; scripts/fc-smoke.sh runs the real VMM
+  # on a KVM-capable runner when one is available.
   build:
     needs: validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - run: make image
-      - run: make build
       - run: sudo apt-get update && sudo apt-get install -y qemu-system-x86
-      - run: make smoke
+      - run: make PROFILE=fc-guest build
+      - run: make PROFILE=fc-guest smoke
+      - run: make PROFILE=hypervisor build
+      - run: make PROFILE=hypervisor smoke
       - uses: actions/upload-artifact@v4
         with:
-          name: bzImage
+          name: v1-ship-set
           path: |
             out/bzImage-hypervisor
             out/hypervisor.config
+            out/bzImage-fc-guest
+            out/vmlinux-fc-guest
+            out/fc-guest.config

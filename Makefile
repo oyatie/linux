@@ -34,12 +34,14 @@ DOCKER_RUN = docker run --rm \
 	-e KVMHOST_PLATFORM="$(PLATFORM)" \
 	-e PROFILE="$(PROFILE)" \
 	-e MSV="$(MSV)" \
+	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv unaudited unused menuconfig config-diff initramfs smoke shell clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean distclean
 
 help:
-	@echo "kvmhost -- fleet kernels, currently pinned to linux-$(KERNEL_VERSION)"
+	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
+	@echo "destination track: linux-$(DESTINATION_VERSION) (KHO+LUO live update)."
 	@echo
 	@echo "Profiles (PROFILE=<name>, default $(PROFILE)):"
 	@for p in profiles/*.profile; do \
@@ -53,7 +55,7 @@ help:
 	@echo "  make config           resolve fragments -> .config, verify, stop"
 	@echo "  make build            config + compile bzImage into out/"
 	@echo "  make validate         config-only check against the pinned version"
-	@echo "  make validate-all     resolve + verify every profile"
+	@echo "  make validate-all     resolve + verify the shippable matrix on both tracks"
 	@echo "  make msv              recompute the minimum supported kernel version"
 	@echo "  make unused           fail if any fragment is unreachable"
 	@echo "  make menuconfig       explore interactively on top of the resolved config"
@@ -61,8 +63,8 @@ help:
 	@echo "  make smoke            boot the built kernel under QEMU and assert on it"
 	@echo "  make shell            drop into the build container"
 	@echo
-	@echo "  KERNEL_VERSION=7.3 make build      build against another release (>= MSV $(MSV))"
-	@echo "  KVMHOST_EXTRA=opt-guest make build add optional fragments"
+	@echo "  KERNEL_VERSION=$(DESTINATION_VERSION) make build   build the destination track (>= MSV $(MSV))"
+	@echo "  KVMHOST_EXTRA=opt-windows make build add optional fragments (opt-rt, opt-lowmem, ...)"
 	@echo "  KVMHOST_NICS=mellanox make build     build only your fleet's NICs"
 	@echo "  ACCEL=intel-dsa make build           add an accelerator (DSA/IAA, QAT)"
 	@echo "  GPU=nvidia|amd make build            add GPU support (see docs/PROVIDERS.md)"
@@ -83,7 +85,7 @@ check-msv:
 	msvn=$$(printf '%d%03d' $${msv%%.*} $$(echo $$msv | cut -d. -f2)); \
 	if [ "$$kvn" -lt "$$msvn" ]; then \
 		echo "kernel $$kv is below the minimum supported version $$msv" >&2; \
-		echo "Live update (LIVEUPDATE/LIVEUPDATE_MEMFD) does not exist there." >&2; \
+		echo "(v1 feature floor -- iommufd/cdev, KVM TDX, PREEMPT_LAZY.  docs/MSV.md)" >&2; \
 		echo "See docs/MSV.md; regenerate the floor with 'make msv'." >&2; \
 		exit 1; \
 	fi
@@ -131,24 +133,23 @@ config-diff:
 		-e SRC=/build/linux-$(KERNEL_VERSION) $(IMAGE) /repo/scripts/config-diff.sh
 
 validate-all: | $(OUT)
-	@fail=0; \
-	for p in profiles/*.profile; do \
-		n=$$(basename $$p .profile); \
-		printf '\n=========== %s @ linux-$(KERNEL_VERSION) ===========\n' "$$n"; \
-		if [ "$$n" = "gpu-node" ]; then \
-			$(MAKE) --no-print-directory PROFILE=$$n GPU=nvidia config || fail=1; \
-		else \
-			$(MAKE) --no-print-directory PROFILE=$$n config || fail=1; \
-		fi; \
-	done; \
-	exit $$fail
+	VALIDATE_VERSIONS="$(KERNEL_VERSION) $(DESTINATION_VERSION)" ./scripts/validate-matrix.sh
 
 initramfs: | $(OUT)
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro -v $(OUT):/out \
 		$(IMAGE) /repo/scripts/mkinitramfs.sh
 
+# Guest profiles assert a guest-shaped kernel (no KVM, no modules); fc-guest
+# boots on QEMU's microvm machine, the faithful stand-in for Firecracker's
+# virtio-mmio world.  scripts/fc-smoke.sh runs the REAL VMM on a Linux+KVM box.
+SMOKE_MACHINE = $(if $(filter fc-guest,$(PROFILE)),microvm,q35)
+SMOKE_EXPECT  = $(if $(filter ch-guest ch-guest-k8s fc-guest,$(PROFILE)),guest,host)
 smoke: initramfs
-	./scripts/qemu-smoke.sh $(OUT)/bzImage-$(PROFILE) $(OUT)/initramfs.cpio.gz
+	MACHINE=$(SMOKE_MACHINE) EXPECT=$(SMOKE_EXPECT) \
+		./scripts/qemu-smoke.sh $(OUT)/bzImage-$(PROFILE) $(OUT)/initramfs.cpio.gz
+
+smoke-fc:
+	./scripts/fc-smoke.sh $(OUT)/vmlinux-fc-guest $(OUT)/initramfs.cpio.gz
 
 shell:
 	docker run --rm -it -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro \

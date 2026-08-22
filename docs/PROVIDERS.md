@@ -50,12 +50,13 @@ That is enforced, not assumed:
 | `microvm`, `microvm-mmio` | off | none |
 | `gpu-node` | off unless `GPU=amd` | **`GPU=` required** |
 
-`PROFILE=gpu-node` now *fails the build* without an explicit `GPU=nvidia` or
-`GPU=amd`, because a kernel that looks like an accelerator node and cannot
-drive an accelerator is a deploy-time surprise. And if what you actually want
-is a CPU node on an RDMA fabric -- a storage or HPC node with no GPUs at all --
-that is `PROFILE=worker KVMHOST_EXTRA=opt-rdma`, which shares none of the GPU
-machinery.
+The split got sharper in the SKU restructure: `gpu-node` is now a GPU **VM
+host** — the GPU goes to a guest via VFIO, so that SKU binds no GPU driver and
+`build.sh` *refuses* `GPU=` on it. The vendor fragments (`GPU=nvidia|amd`)
+belong on `trusted-compute`, the first-party training metal, where
+`hw-gpu-common` brings the RDMA fabric and GPUDirect P2P chain with them. A
+CPU node on an RDMA fabric with no GPUs is `trusted-compute
+KVMHOST_EXTRA=opt-rdma`.
 
 ## Separating what needs a GPU from what does not
 

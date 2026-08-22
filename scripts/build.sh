@@ -1,6 +1,16 @@
 #!/bin/sh
-# Build kvmhost inside the container.  Runs with /src = kernel tree,
-# /repo = this repository, /out = artifact directory.
+# Build one profile inside the container.  /src = kernel tree, /repo = this
+# repository, /out = artifacts.
+#
+# Fragment order (last mention of a symbol wins):
+#   base -> platform -> layers -> cpu -> gpu -> accel -> nics -> kver
+#        -> liveupdate (hosts, >= LUO_FLOOR) -> OVERRIDES -> KVMHOST_EXTRA
+#
+# platform comes BEFORE the layers: platform-vm states "you do not own the
+# hardware" as a foundation, and a guest layer may then explicitly re-add the
+# few pieces its VMM really does provide (Cloud Hypervisor ACPI hotplug, a
+# virtio-iommu).  An override that must beat everything stays in OVERRIDES,
+# which is applied last.
 set -eu
 
 SRC=${SRC:-/src}
@@ -9,21 +19,14 @@ OUT=${OUT:-/out}
 JOBS=${JOBS:-$(nproc)}
 EXTRA=${KVMHOST_EXTRA:-}
 
-# Refuse to build below the minimum supported version.  Every symbol below the
-# floor would still "resolve" -- Kconfig would just drop the features that do
-# not exist yet, and check-config would tell you.  Failing here says why.
-if [ -n "${MSV:-}" ]; then
-	kv_maj=$(echo "${KERNEL_VERSION:?}" | cut -d. -f1)
-	kv_min=$(echo "$KERNEL_VERSION" | cut -d. -f2)
-	msv_maj=$(echo "$MSV" | cut -d. -f1)
-	msv_min=$(echo "$MSV" | cut -d. -f2)
-	if [ "$kv_maj" -lt "$msv_maj" ] ||
-		{ [ "$kv_maj" -eq "$msv_maj" ] && [ "$kv_min" -lt "$msv_min" ]; }; then
-		echo "kernel $KERNEL_VERSION is below the minimum supported version $MSV" >&2
-		echo "Live update (LIVEUPDATE/LIVEUPDATE_MEMFD) does not exist there." >&2
-		echo "See docs/MSV.md; regenerate the floor with 'make msv'." >&2
-		exit 1
-	fi
+vernum() { printf '%d%03d' "${1%%.*}" "$(echo "$1" | cut -d. -f2)"; }
+
+# Hard floor.  Below it, symbols would not fail -- Kconfig silently drops
+# what does not exist yet -- so we fail here, with the reason.
+if [ -n "${MSV:-}" ] && [ "$(vernum "${KERNEL_VERSION:?}")" -lt "$(vernum "$MSV")" ]; then
+	echo "kernel $KERNEL_VERSION is below the hard floor $MSV" >&2
+	echo "(v1 feature set: iommufd/cdev, KVM TDX, PREEMPT_LAZY -- docs/MSV.md)" >&2
+	exit 1
 fi
 
 PROFILE=${PROFILE:-hypervisor}
@@ -36,32 +39,27 @@ profile_file="$REPO/profiles/$PROFILE.profile"
 # shellcheck disable=SC1090
 . "$profile_file"
 
-# Base: every layer in the fleet shares these.  If a decision differs between
-# layers it does not belong here -- it belongs in that layer's fragment.
 base="00-core 15-vm-boot 20-storage 30-net 40-platform 50-security 55-kspp \
-60-observability 70-liveupdate 90-strip 95-no-legacy"
+60-observability 90-strip 95-no-legacy"
 
+add() { fragments="$fragments $REPO/configs/fragments/$1.config"; }
 fragments=""
-for f in $base ${LAYERS:-}; do
-	fragments="$fragments $REPO/configs/fragments/$f.config"
-done
+for f in $base; do add "$f"; done
 
-# NIC drivers: one fragment per vendor.  The default builds all of them so a
-# generic image boots on anything; a fleet that knows its hardware should set
-# KVMHOST_NICS to just what it buys.
-# A profile may declare NICS (e.g. "none" for a guest); KVMHOST_NICS in the
-# environment overrides it.
-nics=${KVMHOST_NICS:-${NICS:-mellanox intel broadcom}}
-[ "$nics" = "none" ] && nics=""
-for nic in $nics; do
-	f="$REPO/configs/fragments/hw-nic-$nic.config"
-	[ -f "$f" ] || { echo "no such NIC fragment: hw-nic-$nic.config" >&2; exit 1; }
+# --- platform: metal owns the machine; vm owns nothing ----------------------
+platform=${KVMHOST_PLATFORM:-${PLATFORM:-metal}}
+if [ "$platform" != "metal" ]; then
+	f="$REPO/configs/fragments/platform-$platform.config"
+	[ -f "$f" ] || { echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
 	fragments="$fragments $f"
-done
+fi
 
-# CPU vendor.  Default is a single image that boots both, which is usually
-# right; CPU=intel or CPU=amd drops the other vendor's KVM/IOMMU/EDAC/pstate
-# stack for a single-vendor fleet.
+# --- role layers -------------------------------------------------------------
+for f in ${LAYERS:-}; do add "$f"; done
+
+# --- CPU vendor.  Default builds both; single-vendor drops the other's
+# KVM/IOMMU/EDAC/pstate stack AND its mitigations -- tie to the SKU in the
+# pipeline, never to a human (CPU=amd on Intel silicon = L1TF compiled out).
 cpu=${KVMHOST_CPU:-${CPU:-both}}
 if [ "$cpu" != "both" ]; then
 	f="$REPO/configs/fragments/cpu-$cpu.config"
@@ -69,29 +67,26 @@ if [ "$cpu" != "both" ]; then
 	fragments="$fragments $f"
 fi
 
-# GPUs: vendor choice changes the kernel's shape (in-tree DRM vs out-of-tree
-# modules), so it is explicit rather than implied by the profile.
+# --- GPUs: only for first-party training metal (trusted-compute GPU=...).
+# gpu-node is a *passthrough host*: the GPU goes to a guest via VFIO, and a
+# host vendor driver would claim the very device VFIO needs.
 gpu=${KVMHOST_GPU:-${GPU:-none}}
 [ "$gpu" = "none" ] && gpu=""
-for g in $gpu; do
-	f="$REPO/configs/fragments/hw-gpu-$g.config"
-	[ -f "$f" ] || { echo "no such GPU fragment: hw-gpu-$g.config" >&2; exit 1; }
-	fragments="$fragments $f"
-done
-
-# A GPU node with no GPU fragment is a mistake worth catching at build time
-# rather than at deploy time: it produces a kernel that looks like an
-# accelerator node and cannot drive an accelerator.
-if [ "$PROFILE" = "gpu-node" ] && [ -z "$gpu" ]; then
-	echo "PROFILE=gpu-node requires GPU=nvidia or GPU=amd" >&2
-	echo "(without it you have a CPU node with an RDMA fabric, which is a" >&2
-	echo " legitimate thing to want -- use PROFILE=worker KVMHOST_EXTRA=opt-rdma)" >&2
+if [ -n "$gpu" ] && [ "$PROFILE" = "gpu-node" ]; then
+	echo "PROFILE=gpu-node is a GPU *passthrough* host: it must not bind a host" >&2
+	echo "GPU driver.  GPU=nvidia|amd belongs on trusted-compute training nodes." >&2
 	exit 1
 fi
+if [ -n "$gpu" ]; then
+	add "hw-gpu-common"
+	for g in $gpu; do
+		f="$REPO/configs/fragments/hw-gpu-$g.config"
+		[ -f "$f" ] || { echo "no such GPU fragment: hw-gpu-$g.config" >&2; exit 1; }
+		fragments="$fragments $f"
+	done
+fi
 
-# Hardware accelerators: per-fleet PCIe devices, selected like the NICs.  A
-# driver for an accelerator the machine does not have is the same mistake as a
-# driver for a NIC it does not have.
+# --- accelerators (DSA/IAA, QAT): per-fleet PCIe parts, like the NICs -------
 accel=${KVMHOST_ACCEL:-${ACCEL:-none}}
 [ "$accel" = "none" ] && accel=""
 for a in $accel; do
@@ -100,41 +95,46 @@ for a in $accel; do
 	fragments="$fragments $f"
 done
 
-# Per-version overrides.  No kver-*.config ships today (there is one track),
-# but the hook stays: symbols get renamed and retyped between releases, and
-# the next version bump wants somewhere to put the delta.
-kver=$(echo "${KERNEL_VERSION:?}" | cut -d. -f1,2)
-if [ -f "$REPO/configs/fragments/kver-$kver.config" ]; then
-	fragments="$fragments $REPO/configs/fragments/kver-$kver.config"
-fi
-
-# OVERRIDES last (after the NIC and version fragments), because an override
-# that a later fragment can undo is not an override.  This bit us: opt-dpu
-# strips the tc action layer, and hw-nic-mellanox re-requested the mlx5 TC
-# offload that depends on it.
-# PLATFORM: metal (owns the machine) or vm (runs inside one).  Applied after
-# the role's overrides, because where the kernel runs beats what it does --
-# a control-plane node in a VM has no BMC no matter what its role wants.
-platform=${KVMHOST_PLATFORM:-${PLATFORM:-metal}}
-if [ "$platform" != "metal" ]; then
-	f="$REPO/configs/fragments/platform-$platform.config"
-	[ -f "$f" ] || { echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
+# --- NICs: host SKUs pin what the fleet buys (profile NICS=); guests are
+# virtio-only (NICS=none).  The fallback soup exists for bring-up images.
+nics=${KVMHOST_NICS:-${NICS:-mellanox intel broadcom}}
+[ "$nics" = "none" ] && nics=""
+for nic in $nics; do
+	if [ "$nic" = "ena" ] && [ "$platform" = "metal" ]; then
+		echo "hw-nic-ena is what a *guest* sees on EC2 (the Nitro card presents" >&2
+		echo "it); it never belongs in a bare-metal image.  Use PLATFORM=vm." >&2
+		exit 1
+	fi
+	f="$REPO/configs/fragments/hw-nic-$nic.config"
+	[ -f "$f" ] || { echo "no such NIC fragment: hw-nic-$nic.config" >&2; exit 1; }
 	fragments="$fragments $f"
+done
+
+# --- per-version deltas ------------------------------------------------------
+kver=$(echo "$KERNEL_VERSION" | cut -d. -f1,2)
+[ -f "$REPO/configs/fragments/kver-$kver.config" ] && add "kver-$kver"
+
+# --- live update: host SKUs only, and only where LUO exists ------------------
+# Guests are replaced, not handed over, so 70-liveupdate is NOT in base.
+if [ "${LIVEUPDATE:-}" = "yes" ]; then
+	if [ -n "${LUO_FLOOR:-}" ] && [ "$(vernum "$KERNEL_VERSION")" -ge "$(vernum "$LUO_FLOOR")" ]; then
+		add "70-liveupdate"
+	else
+		echo "==> v1/LTS track: no LUO below $LUO_FLOOR -- update story is drain + livepatch"
+	fi
 fi
 
-for f in ${OVERRIDES:-} $EXTRA; do
-	fragments="$fragments $REPO/configs/fragments/$f.config"
-done
+# --- profile overrides and ad-hoc extras, last so they win ------------------
+for f in ${OVERRIDES:-} $EXTRA; do add "$f"; done
 
 cd "$SRC"
 
 echo "==> profile: $PROFILE -- $DESC"
+echo "==> kernel:  $KERNEL_VERSION  platform: $platform  cpu: $cpu"
 echo "==> baseline: allnoconfig (nothing is on until a fragment turns it on)"
 make -s ARCH=x86_64 allnoconfig >/dev/null
 
 echo "==> merging $(echo "$fragments" | wc -w) fragments"
-# -m merges without running conf; olddefconfig then resolves defaults for
-# everything the fragments did not mention.
 ./scripts/kconfig/merge_config.sh -m -O "$SRC" .config $fragments >/tmp/merge.log 2>&1 ||
 	{ cat /tmp/merge.log; exit 1; }
 make -s ARCH=x86_64 olddefconfig >/dev/null
@@ -156,3 +156,13 @@ make -s ARCH=x86_64 -j"$JOBS" bzImage
 cp "$SRC/arch/x86/boot/bzImage" "$OUT/bzImage-$PROFILE"
 size=$(stat -c %s "$OUT/bzImage-$PROFILE")
 printf '==> bzImage-%s: %s bytes (%s KiB)\n' "$PROFILE" "$size" "$((size / 1024))"
+
+# Guest profiles also ship a stripped ELF vmlinux: Firecracker boots ELF (or
+# PVH), and Cloud Hypervisor prefers it.  A bzImage-only artifact cannot even
+# be loaded by the plant VMMs.
+if [ "${ARTIFACT:-}" = "vmlinux" ]; then
+	"${CROSS_COMPILE:-}strip" -o "$OUT/vmlinux-$PROFILE" vmlinux
+	vsize=$(stat -c %s "$OUT/vmlinux-$PROFILE")
+	printf '==> vmlinux-%s: %s bytes (%s KiB, ELF for FC/CH direct boot)\n' \
+		"$PROFILE" "$vsize" "$((vsize / 1024))"
+fi

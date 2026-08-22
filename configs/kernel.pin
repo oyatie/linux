@@ -1,14 +1,26 @@
-# The kernel this platform is built from, and the floor below which it will
-# not build.
+# Version policy: two tracks, one floor.
 #
-# There is no LTS track.  The features this platform is built around -- Live
-# Update Orchestrator, memfd handover, KHO armed at boot -- do not exist below
-# 7.0, so an LTS kernel could not run the design, only a degraded version of
-# it.  Rather than maintain a second track that silently loses live update,
-# the floor is enforced.
-KERNEL_VERSION=7.2
+#   v1 (plant)    -- the current LTS.  This is what boots the cloud on day
+#                    one: kexec_file_load + drain for kernel updates, plus
+#                    livepatch on VFIO hosts.  Stable trees get ~2 years of
+#                    backported fixes; a .0 mainline gets ~2 months.
+#   destination   -- mainline with the Live Update Orchestrator (KHO + LUO +
+#                    memfd handover), which is what eventually turns a kernel
+#                    update into ~1s of blackout instead of a drain campaign.
+#                    LUO does not exist below 7.0, so that is the destination
+#                    floor, not the plant floor.
+#
+# `make build` builds the v1 track.  `make KERNEL_VERSION=$(DESTINATION_VERSION) ...`
+# builds the destination track; validate-all resolves every shipping profile
+# against BOTH so the day we move is a version bump, not a migration.
+KERNEL_VERSION=6.18.45
+DESTINATION_VERSION=7.2
 
-# Minimum supported version, derived (not guessed) by scripts/feature-floor.sh
-# from the features this platform actually uses.  Regenerate with `make msv`
-# and see docs/MSV.md for the per-feature table.
-MSV=7.0
+# Hard floor for any build (v1 feature set: iommufd + VFIO cdev, KVM TDX,
+# PREEMPT_LAZY, nftables-only userspace assumptions).  Derived, not guessed:
+# scripts/feature-floor.sh, table in docs/MSV.md.
+MSV=6.18
+# Floor for the live-update fragment (LIVEUPDATE/LIVEUPDATE_MEMFD/KHO armed).
+# Below this, host profiles build WITHOUT live update and the update story is
+# drain + livepatch -- build.sh says so out loud.
+LUO_FLOOR=7.0

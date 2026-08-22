@@ -1,13 +1,12 @@
-# KVM hypervisor host: runs guest VMs on bare metal.
-DESC="KVM hypervisor host (bare metal, runs guest VMs)"
+# The v1 plant kernel: bare-metal KVM host running Cloud Hypervisor and/or
+# Firecracker VMMs.  Everything else in the fleet runs as a guest on top.
+DESC="KVM hypervisor host (v1 plant; Cloud Hypervisor / Firecracker VMMs)"
 LAYERS="layer-hypervisor"
-# Datapath throughput beats free-poisoning on this layer.
-#
-# opt-livepatch is on DELIBERATELY, and it reverses the no-modules stance.
-# The reason is measurable, not cultural: in 7.2 the Live Update Orchestrator
-# registers exactly one file handler (memfd), so a kexec-with-handover
-# preserves guest memory but NOT an assigned device.  Any host doing SR-IOV or
-# PCI passthrough therefore cannot fix a CVE without disrupting those guests --
-# unless it can livepatch.  Drop this override on a fleet with no device
-# assignment, or once LUO grows vfio/iommufd handover.
+# opt-livepatch reverses the no-modules stance, deliberately: LUO cannot hand
+# over an assigned device (its only handler is memfd), so a VFIO host cannot
+# fix a CVE without disrupting passthrough guests unless it can livepatch.
 OVERRIDES="opt-datapath-perf opt-livepatch"
+# Pin the fleet's actual NICs; override with KVMHOST_NICS= for other SKUs.
+NICS="mellanox"
+# Live update (KHO+LUO) on the destination track; ignored below LUO_FLOOR.
+LIVEUPDATE="yes"

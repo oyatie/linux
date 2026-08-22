@@ -1,69 +1,51 @@
-# Layers
+# SKUs
 
-One kernel per role, not one kernel for the fleet. Each layer shares a base
-(`00-core`, `20-storage`, `30-net`, `40-platform`, `50-security`, `55-kspp`,
-`60-observability`, `70-liveupdate`, `90-strip`) and adds exactly one
-`layer-*.config`.
+One structural fact drives the whole map: **tenant code runs in VMs, and so
+does almost everything first-party.** The metal fleet is hypervisors; the
+control plane, schedulers and node agents are guests on top of it. Kernels
+follow that shape.
 
-| Profile | Machine | Enabled symbols |
+## v1 ship set
+
+| SKU | Runs on | What it is |
 |---|---|---|
-| `hypervisor` | KVM host, runs guest VMs on bare metal | 1608 |
-| `worker` | Runs tenant tasks in containers and sandboxes | 1586 |
-| `control-plane` | Replicated state machine owning cluster state | 1503 |
-| `scheduler` | One large CPU-bound placement process | 1460 |
+| `hypervisor` | metal | KVM host under Cloud Hypervisor / Firecracker. KVM both vendors, vhost, VFIO/iommufd + SR-IOV, SEV/TDX, the v1 software overlay, strict IOMMU. Modules exist **only** for signed livepatch. |
+| `ch-guest` | VM | The general guest: sold VMs and first-party serving. Deliberately not minimal — full base (NUMA, big NR_CPUS, XFS/ext4, BPF, io_uring, kdump) plus CH's ACPI hotplug, virtio-fs, virtio-iommu, kTLS. Ships bzImage **and** ELF vmlinux. |
+| `fc-guest` | VM | The function/container-instance guest under Firecracker: virtio-mmio devices from the kernel command line, no PCI, no ACPI, no EFI, no NUMA, 64 CPUs. Viciously small is the point. |
 
-```
-make PROFILE=worker build
-make validate-all          # every profile x every kernel track
-```
+Control plane and schedulers run **on `ch-guest`**. They are processes with
+replicas, not kernels: giving each a bespoke metal kernel was Borg cosplay,
+and it died in review. (`docs/CHALLENGE.md` records the earlier per-role
+audit; those roles now describe workloads, not SKUs.)
 
-## Why separate kernels
+## Later SKUs — validated in the matrix today, shipped when the product exists
 
-The layers fail differently, so they should be attacked differently.
+| SKU | Runs on | Trigger |
+|---|---|---|
+| `hypervisor-dpu` | metal | The DPU terminates the overlay; host loses OVS/VXLAN/conntrack entirely. Destination for the plant. |
+| `gpu-node` | metal | Selling GPU VMs. A **passthrough host**: the GPU goes to the guest via VFIO, so this SKU binds no GPU driver and `build.sh` refuses `GPU=` on it. Differs from `hypervisor` at runtime (1G hugepages, vfio-pci binding), not in config. |
+| `trusted-compute` | metal | First-party services on metal: one trust domain, IOMMU passthrough (untranslated DMA), no KVM. `GPU=nvidia\|amd` turns it into the training node — RDMA fabric, GPUDirect P2P, vendor driver. |
+| `ch-guest-k8s` | VM | Only if we sell managed kube: the container stack (cgroup enforcement, IPVS, dm-crypt scratch) inside a CH guest. Pairs with `configs/sysctl.d/ch-guest-k8s.conf`, which fences io_uring away from tenant containers. |
 
-**hypervisor** is the only layer that runs guest VMs, so it is the only one
-that needs KVM's full surface, vhost, VFIO/iommufd device assignment, and
-SEV/TDX. That is roughly 1.5 MiB of code plus the entire device-assignment
-uAPI. Every other layer carrying it is running an attack surface for a
-capability it never uses.
+## The axes
 
-**worker** runs other people's code, which makes it the most exposed layer.
-It needs the container enforcement stack (cgroup v2 io/cpu/memory controllers,
-PSI, RDT cache partitioning) and it needs KVM — but only KVM, for gVisor's
-KVM platform and microVM sandboxes. No VFIO, no SEV: a worker node hands out
-sandboxes, not hardware. `X86_CPU_RESCTRL` matters here specifically: without
-cache partitioning a batch task evicts a latency-sensitive task's working set
-from L3 and no cgroup setting will stop it.
+Every kernel is `profile × platform × cpu × hardware knobs`:
 
-**control-plane** is a replicated state machine whose commit path is an fsync
-barrier. A stall there is a leader election, and a leader election is a
-cell-wide event. It needs no virtualization at all, and its risk is not
-throughput but tail latency and blast radius.
+- **PLATFORM=metal|vm** — arguably decides more than the profile: metal owns
+  memory errors, the BMC, microcode, P-states and real NICs; a VM owns none of
+  that, and `platform-vm.config` also supplies paravirt (kvm-clock, PV
+  spinlocks, ptp_kvm, vsock, balloon) and the PVH entry for direct boot.
+- **CPU=both|intel|amd** — single-vendor drops the other's KVM/IOMMU/EDAC
+  stack *and its mitigations*; tie it to the SKU in the pipeline, never to a
+  human (`CPU=amd` deployed on Intel = L1TF compiled out).
+- **NICs / accelerators / GPUs** — per-fleet parts. Host SKUs pin what the
+  fleet buys (`NICS="mellanox"`); guests are virtio-only; `ena` is what a
+  *guest* sees on EC2 and the build refuses it on metal.
 
-**scheduler** is one enormous long-lived process running a CPU-bound placement
-loop over the whole cluster's state. No local durability, no guests, no
-containers to isolate. Its kernel's job is to stay out of the way of a
-multi-hundred-GB heap: TLB reach, NUMA page placement, and profiling.
+## Numbers
 
-## What each layer deliberately does not get
-
-| | hypervisor | worker | control-plane | scheduler |
-|---|---|---|---|---|
-| KVM | full + SEV/TDX | KVM only | — | — |
-| VFIO / device assignment | yes | — | — | — |
-| Container enforcement | — | full | basic | — |
-| `IP_VS` service networking | — | yes | — | — |
-| dm-crypt scratch | yes | yes | — | — |
-| Free-time poisoning (KSPP) | relaxed | on | on | on |
-
-The one place a layer relaxes hardening is the hypervisor's
-`opt-datapath-perf`, which turns off `INIT_ON_FREE_DEFAULT_ON` because
-free-time poisoning is measurable on allocation-heavy paths like vhost-net.
-Alloc-time init stays on everywhere.
-
-## Adding a layer
-
-Write `configs/fragments/layer-<name>.config` containing only what makes that
-role different, and `profiles/<name>.profile` naming it. Then run
-`make validate-all` — a layer that does not resolve on both kernel tracks is
-not done.
+Regenerate with `make validate-all`; representative counts (`=y`, v1 track):
+hypervisor ~1510, ch-guest ~1150, fc-guest ~1030, trusted-compute ~1380.
+The gap between hypervisor and fc-guest — roughly a third of the kernel — is
+the measure of what "the host owns the machine, the guest owns nothing"
+actually buys.

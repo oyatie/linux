@@ -1,33 +1,38 @@
 # kvmhost
 
-Stripped-down Linux kernels for a datacenter fleet: one per role — hypervisor
-host, worker node, control plane, scheduler — rather than one general-purpose
-distro kernel with everything switched on.
+Stripped-down Linux kernels for a hyperscale datacenter, built around one
+structural fact: the plant is **hypervisor metal plus guests**.  Tenant code
+runs in Cloud Hypervisor / Firecracker VMs, and so does almost everything
+else — the control plane, schedulers, and node agents are guests too.  So the
+v1 ship set is exactly three kernels, not a Borg-style stable of metal roles:
+
+| v1 ship set | |
+|---|---|
+| `hypervisor` | the bare-metal KVM host under CH/FC VMMs |
+| `ch-guest` | the general guest: sold VMs and first-party serving |
+| `fc-guest` | the Firecracker guest: MMIO-only, viciously small |
 
 Everything starts from `allnoconfig`. Nothing is in the image unless a
 fragment in `configs/fragments/` explicitly asks for it, and `make config`
 fails the build if Kconfig silently dropped anything that was asked for.
 
 ```
-make image                    # build the container toolchain (once)
-make PROFILE=worker build     # fetch, resolve config, compile -> out/
-make smoke                    # boot it under QEMU and assert on what it reports
-make validate-all             # resolve + verify every profile
+make image                      # build the container toolchain (once)
+make build                      # v1 hypervisor on the LTS track -> out/
+make PROFILE=fc-guest build     # guest kernels also emit an ELF vmlinux
+make smoke PROFILE=fc-guest     # boot + assert (QEMU microvm stand-in)
+make validate-all               # the shippable matrix, on both tracks
 ```
 
-| Profile | Machine |
-|---|---|
-| `hypervisor` | KVM host, runs guest VMs on bare metal |
-| `worker` | Runs tenant tasks in containers and sandboxes |
-| `control-plane` | Replicated state machine owning cluster state |
-| `scheduler` | One large CPU-bound placement process |
-| `hypervisor-dpu` | KVM host whose dataplane lives on a DPU |
-| `gpu-node` | AI/HPC node: RDMA fabric, GPUDirect, vendor driver |
-| `microvm` | Guest kernel (Firecracker/crosvm class) |
-| `microvm-mmio` | Guest with no PCI/ACPI/EFI — smallest and fastest to boot |
+Later SKUs (validated today, shipped when the product exists): `hypervisor-dpu`
+(the card terminates the overlay), `gpu-node` (GPU-VM passthrough host — binds
+no GPU driver), `trusted-compute` (first-party metal, IOMMU passthrough;
+`GPU=nvidia|amd` makes it a training node), `ch-guest-k8s` (containers inside
+a CH guest, if we sell kube).
 
-Orthogonal knobs: `CPU=intel|amd`, `GPU=nvidia|amd`, `KVMHOST_NICS=...`,
-`ACCEL=intel-dsa|intel-qat`, `KVMHOST_EXTRA=opt-rt|opt-livepatch|opt-fastboot`.
+Orthogonal knobs: `CPU=intel|amd`, `GPU=nvidia|amd` (training metal only),
+`KVMHOST_NICS=...`, `ACCEL=intel-dsa|intel-qat`, `PLATFORM=vm`,
+`KVMHOST_EXTRA=opt-windows|opt-rt|opt-lowmem|opt-fastboot`.
 
 The builder needs **~8 GB of RAM**. Two steps are single-process memory hogs:
 linking `vmlinux.o` with `DEBUG_INFO_BTF` (full DWARF in every object), and
@@ -67,7 +72,6 @@ against Talos, Alpine, Rocky and Oracle UEK is in `docs/COMPARISON.md`.
 configs/kernel.pin           which kernel release this tracks
 configs/fragments/
   00-core.config             CPU, scheduler, memory, cgroups, boot
-  10-virt.config             KVM, vhost, VFIO/iommufd, IOMMU, SEV/TDX
   15-vm-boot.config          virtio drivers so the image also boots in a VM
   20-storage.config          block layer, NVMe, dm-verity/crypt, filesystems
   30-net.config              stack, tenant dataplane, eBPF, NIC drivers
@@ -75,9 +79,12 @@ configs/fragments/
   50-security.config         LSMs, seccomp, hardening, mitigations, no modules
   60-observability.config    perf, ftrace, BTF, kdump, pstore
   90-strip.config            what must never come back, stated explicitly
-  layer-*.config             one per role: hypervisor, worker, control-plane,
-                             scheduler
-  opt-*.config               guest/nested, RDMA, debug, low-memory, real-time
+  layer-*.config             hypervisor (KVM/vhost/VFIO/SEV/TDX + v1 overlay),
+                             ch-guest, fc-guest, containers
+  platform-vm.config         the metal/vm axis: strips RAS/BMC/pstates, adds
+                             paravirt + PVH direct boot
+  opt-*.config               windows guests, RT, RDMA, debug, low-memory
+  configs/sysctl.d/          image policy the kernel cannot express as Kconfig
 scripts/check-config.sh      asserts the resolved .config honours every line
 profiles/*.profile           which fragments compose each role's kernel
 docs/DESIGN.md               why each subsystem is in or out
@@ -90,22 +97,16 @@ docs/CHECKLISTS.md           capability audits + what they caught
 docs/TUNING.md               boot cmdline and runtime policy for the fleet
 ```
 
-## Kernel version and MSV
+## Version policy: two tracks
 
-Pinned in `configs/kernel.pin`: **7.2**, with an enforced minimum supported
-version of **7.0**.
-
-```
-make build                       # 7.2
-make KERNEL_VERSION=7.3 build    # any release at or above the floor
-make msv                         # recompute the floor from the features used
-```
-
-There is no LTS track. The floor is set by live update — `LIVEUPDATE`,
-`LIVEUPDATE_MEMFD` and KHO-armed-at-boot are all 7.0 — and an LTS build below
-it does not fail loudly, it just silently produces a kernel that cannot do a
-live upgrade. `docs/MSV.md` has the per-feature table and what would move the
-floor in either direction.
+`configs/kernel.pin` pins both. **v1 is the LTS track** (currently 6.18.45):
+kernel updates are `kexec_file_load` + drain, plus livepatch on VFIO hosts.
+**Destination is 7.2**: the Live Update Orchestrator (KHO + LUO + memfd
+handover) turns a host kernel update into ~1s of blackout — but LUO does not
+exist below 7.0, so it gates the destination, not the plant. `validate-all`
+resolves every shippable tuple against both tracks so the move is a version
+bump, not a migration. The hard floor for any build is `MSV=6.18`
+(`docs/MSV.md` has the per-feature derivation).
 
 ## Verification
 

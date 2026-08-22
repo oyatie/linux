@@ -1,8 +1,13 @@
 # Taking a new kernel
 
-Three tiers. A fleet needs all three, because "reboot the machine" does not
-scale to a CVE with a 24-hour SLA and does not survive a workload that cannot
-be moved.
+**v1 (LTS track): drain + `kexec_file_load`, plus livepatch on VFIO hosts.**
+**Destination (7.x track): kexec-with-handover, where a host kernel update
+becomes ~1s of blackout with guest memory preserved.**
+
+The tiers below describe the full machinery; which tier a machine gets is
+decided by `LIVEUPDATE=yes` in its profile and the `LUO_FLOOR` gate in
+`build.sh` — guests never compile any of it, because a guest is replaced, not
+handed over.
 
 ## Tier 1 — live patch a function (seconds, no disruption)
 
@@ -98,9 +103,9 @@ code paths, and kexec can. A fleet wants both.
 
 ## Which tier for which layer
 
-| Layer | Default | Why |
+| SKU | v1 (LTS) | Destination (7.x) |
 |---|---|---|
-| `hypervisor` | livepatch, then KHO for the rest | LUO cannot hand over an assigned device in 7.2, so passthrough guests do not survive a kexec |
-| `worker` | livepatch | LUO preserves memory objects, not processes -- a kexec kills every tenant task anyway |
-| `control-plane` | drain + kexec | Replicas fail over in seconds; simplicity beats preserved state |
-| `scheduler` | drain + kexec | Rebuilds its in-memory state from the control plane on start |
+| `hypervisor` / `gpu-node` | drain + kexec_file_load; **livepatch** for CVEs on VFIO hosts (passthrough guests cannot be evacuated) | KHO + LUO for virtio-backed guests; livepatch stays until LUO grows a vfio handler |
+| `hypervisor-dpu` | same as hypervisor | same |
+| `trusted-compute` | drain + kexec (first-party services are drainable; no module loader) | same |
+| guests (`ch-guest`, `fc-guest`, `ch-guest-k8s`) | replaced, never upgraded in place — no kexec, no KHO, no livepatch compiled in | same |
