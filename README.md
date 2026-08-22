@@ -49,10 +49,10 @@ different config than "Ubuntu server minus some drivers":
 | **cgroup v2 only** | v1 is a second, weaker policy surface with nothing left that needs it. |
 | **RAS is first-class** | EDAC, APEI/GHES, CEC and `MEMORY_FAILURE` turn a memory fault into an offlined page and one dead guest, not a dead host. |
 
-The resolved config is ~1,570 enabled symbols, every one of them built in and
-zero loadable modules — where a distro server kernel enables a comparable
-number of built-ins *plus* several thousand modules covering hardware this
-machine will never have.
+The resolved config is ~1,600 enabled symbols, every one built in, and **zero
+loadable modules**. For scale, Rocky 9 ships a similar-sized boot image and
+2,370 loadable modules; Alpine's `linux-virt` ships 885. Measured comparison
+against Talos, Alpine, Rocky and Oracle UEK is in `docs/COMPARISON.md`.
 
 ## Layout
 
@@ -77,6 +77,7 @@ docs/DESIGN.md               why each subsystem is in or out
 docs/LAYERS.md               what differs between roles, and why
 docs/LIVEUPDATE.md           livepatch / kexec handover / drain, per layer
 docs/MSV.md                  minimum kernel version, derived per feature
+docs/COMPARISON.md           measured against Talos, Alpine, Rocky, UEK
 docs/TUNING.md               boot cmdline and runtime policy for the fleet
 ```
 
