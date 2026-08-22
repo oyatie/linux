@@ -9,11 +9,14 @@ set -eu
 BZIMAGE=${1:?usage: qemu-smoke.sh <bzImage> <initramfs>}
 INITRD=${2:?}
 TIMEOUT=${TIMEOUT:-300}
+# q35 for anything that expects PCI/ACPI; `microvm` for the MMIO-only guest,
+# which has neither and must be booted by a VMM that speaks plain virtio-mmio.
+MACHINE=${MACHINE:-q35}
 LOG=$(mktemp)
 
 echo "==> booting $BZIMAGE under QEMU (timeout ${TIMEOUT}s)"
 qemu-system-x86_64 \
-	-machine q35 \
+	-machine "$MACHINE" \
 	-cpu max \
 	-smp 2 \
 	-m 1024 \
@@ -21,7 +24,7 @@ qemu-system-x86_64 \
 	-no-reboot \
 	-kernel "$BZIMAGE" \
 	-initrd "$INITRD" \
-	-append "console=ttyS0 panic=1 rdinit=/init" \
+	-append "console=ttyS0 panic=1 rdinit=/init printk.time=1" \
 	>"$LOG" 2>&1 &
 qemu_pid=$!
 
@@ -54,6 +57,13 @@ elif grep -q "KVMHOST SMOKE-OK" "$LOG"; then
 		grep -nE "Kernel panic|BUG:|Oops:|WARNING:" "$LOG" | head >&2
 		exit 1
 	fi
+	# Time-to-userspace, from the kernel's own clock.  Under TCG emulation the
+	# absolute number is meaningless -- it is inflated by whatever the host is
+	# doing -- but it is directly comparable between two kernels booted the
+	# same way, which is the question worth asking.
+	ktime=$(grep -oE '^\[ *[0-9]+\.[0-9]+\]' "$LOG" | tail -1 | tr -d '[] ')
+	printf '==> kernel time to last message: %ss (guest clock, TCG-inflated)\n' "${ktime:-?}"
+	printf '==> wall clock to userspace:     %ss\n' "$waited"
 	echo "==> PASS (full log: $LOG)"
 else
 	echo "==> FAIL: never reached userspace; last 40 lines:" >&2

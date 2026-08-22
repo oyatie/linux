@@ -29,6 +29,8 @@ DOCKER_RUN = docker run --rm \
 	-e KVMHOST_EXTRA="$(KVMHOST_EXTRA)" \
 	-e KVMHOST_NICS="$(KVMHOST_NICS)" \
 	-e KVMHOST_ACCEL="$(ACCEL)" \
+	-e KVMHOST_GPU="$(GPU)" \
+	-e KVMHOST_CPU="$(CPU)" \
 	-e PROFILE="$(PROFILE)" \
 	-e MSV="$(MSV)" \
 	$(IMAGE)
@@ -61,6 +63,8 @@ help:
 	@echo "  KVMHOST_EXTRA=opt-guest make build add optional fragments"
 	@echo "  KVMHOST_NICS=mellanox make build     build only your fleet's NICs"
 	@echo "  ACCEL=intel-dsa make build           add an accelerator (DSA/IAA, QAT)"
+	@echo "  GPU=nvidia|amd make build            add GPU support (see docs/PROVIDERS.md)"
+	@echo "  CPU=intel|amd make build             single-vendor fleet (default: both)"
 
 image:
 	docker build -t $(IMAGE) -f docker/Dockerfile docker

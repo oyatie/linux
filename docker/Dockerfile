@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libelf-dev \
         libncurses-dev \
         libssl-dev \
+        lz4 \
         make \
         openssl \
         pahole \

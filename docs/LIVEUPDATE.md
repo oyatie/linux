@@ -56,11 +56,51 @@ Always works, always available, and the thing the other two tiers exist to
 avoid. Enable `KEXEC_SIG` and enroll your CA before any of this runs in
 production: an unsigned kexec image is a kernel-replacement primitive.
 
+## Does live update make livepatch unnecessary?
+
+No -- and the reason is verifiable rather than a matter of taste. In the whole
+of 7.2 there is **exactly one** LUO file handler:
+
+```
+$ grep -rn liveupdate_register_file_handler --include=*.c .
+./mm/memfd_luo.c:611:   int err = liveupdate_register_file_handler(&memfd_luo_handler);
+```
+
+memfd. Nothing else. Which produces a different answer per layer:
+
+**hypervisor — livepatch still required.** LUO hands over memfd-backed memory,
+which is where a VMM keeps guest RAM, so a pure-virtio guest can in principle
+survive a kexec. An *assigned device* cannot: there is no vfio or iommufd
+handover path in this kernel. Every SR-IOV or passthrough guest on the host
+dies across the kexec. Since device assignment is a large part of why this
+layer exists, live update does not cover its fleet-wide CVE problem.
+
+**worker — livepatch required for a different reason.** LUO preserves memory
+*objects*, not *processes*. kexec restarts the kernel; every tenant task on the
+node dies regardless of what was handed over. For a container host, live update
+buys nothing at all — the node has to be drained either way.
+
+**control-plane, scheduler — neither is needed.** Replicas fail over in
+seconds, so drain-and-reboot is the correct tool and the module loader stays
+out of the image.
+
+**When you can drop livepatch:** a hypervisor fleet running only virtio-backed
+guests, with a VMM that implements the LUO session/restore protocol. That
+combination genuinely is covered by tier 2, and dropping `opt-livepatch` from
+the profile is then strictly better -- it removes the module loader. It is a
+one-line change in `profiles/hypervisor.profile`, and it is the right change
+to make the day your fleet stops doing passthrough, or the day LUO grows a
+vfio handler.
+
+The two tiers are also not substitutes in the other direction: livepatch
+cannot fix a data-structure change, an init-time bug, or anything needing new
+code paths, and kexec can. A fleet wants both.
+
 ## Which tier for which layer
 
 | Layer | Default | Why |
 |---|---|---|
-| `hypervisor` | KHO + LUO | Guests cannot be evacuated cheaply; live migration of every VM is a multi-hour campaign per host |
-| `worker` | KHO + LUO | Tasks can be rescheduled, but not for free at fleet scale |
+| `hypervisor` | livepatch, then KHO for the rest | LUO cannot hand over an assigned device in 7.2, so passthrough guests do not survive a kexec |
+| `worker` | livepatch | LUO preserves memory objects, not processes -- a kexec kills every tenant task anyway |
 | `control-plane` | drain + kexec | Replicas fail over in seconds; simplicity beats preserved state |
 | `scheduler` | drain + kexec | Rebuilds its in-memory state from the control plane on start |

@@ -59,6 +59,26 @@ for nic in $nics; do
 	fragments="$fragments $f"
 done
 
+# CPU vendor.  Default is a single image that boots both, which is usually
+# right; CPU=intel or CPU=amd drops the other vendor's KVM/IOMMU/EDAC/pstate
+# stack for a single-vendor fleet.
+cpu=${KVMHOST_CPU:-${CPU:-both}}
+if [ "$cpu" != "both" ]; then
+	f="$REPO/configs/fragments/cpu-$cpu.config"
+	[ -f "$f" ] || { echo "no such CPU fragment: cpu-$cpu.config" >&2; exit 1; }
+	fragments="$fragments $f"
+fi
+
+# GPUs: vendor choice changes the kernel's shape (in-tree DRM vs out-of-tree
+# modules), so it is explicit rather than implied by the profile.
+gpu=${KVMHOST_GPU:-${GPU:-none}}
+[ "$gpu" = "none" ] && gpu=""
+for g in $gpu; do
+	f="$REPO/configs/fragments/hw-gpu-$g.config"
+	[ -f "$f" ] || { echo "no such GPU fragment: hw-gpu-$g.config" >&2; exit 1; }
+	fragments="$fragments $f"
+done
+
 # Hardware accelerators: per-fleet PCIe devices, selected like the NICs.  A
 # driver for an accelerator the machine does not have is the same mistake as a
 # driver for a NIC it does not have.
