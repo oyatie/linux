@@ -26,6 +26,11 @@ transparent_hugepage=madvise
 intel_iommu=on amd_iommu=on iommu=nopt
 # Crash path.
 crashkernel=512M-:768M
+# Destination-track hosts only: LUO is runtime-gated in ADDITION to being
+# compiled in -- without `liveupdate=on` there is no /dev/liveupdate and a
+# kexec preserves nothing.  (KHO itself is armed by KEXEC_HANDOVER_ENABLE_
+# DEFAULT; this flag is the orchestrator.)  The smoke test asserts the device.
+liveupdate=on
 panic=30 panic_on_warn=0
 # RAS: let the kernel offline pages on corrected-error thresholds.
 mce=recovery

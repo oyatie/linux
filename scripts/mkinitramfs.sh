@@ -17,6 +17,16 @@ CC=${CROSS}gcc
 
 mkdir -p "$WORK/root/proc" "$WORK/root/sys/kernel/security" "$WORK/root/dev"
 
+# A real, well-formed, UNSIGNED kernel image for the kexec-policy probe.
+# Feeding kexec_file_load garbage proves nothing -- the arch loader's format
+# probe rejects it with ENOEXEC before signature verification ever runs (we
+# learned this by predicting EPERM and measuring ENOEXEC).  Only a parseable
+# image reaches the KEXEC_SIG/lockdown gate.
+if [ -n "${PROBE_KERNEL:-}" ] && [ -r "$OUT/$PROBE_KERNEL" ]; then
+	cp "$OUT/$PROBE_KERNEL" "$WORK/root/probe-kernel"
+	echo "==> embedding $PROBE_KERNEL as kexec probe target"
+fi
+
 cat >"$WORK/init.c" <<'EOF'
 /* PID 1 for the smoke test.
  *
@@ -25,11 +35,14 @@ cat >"$WORK/init.c" <<'EOF'
  * no modules_disabled sysctl means CONFIG_MODULES really is off), which is
  * easy to misread as "the test could not check it".
  */
+#include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 
 static int failures;
@@ -84,18 +97,82 @@ static void want_absent(const char *what, const char *path, const char *why)
 		ok(what, why);
 }
 
+/* Empirically classify the kexec_file_load policy by feeding it this init
+ * binary (not a kernel) and reading the errno:
+ *   ENOSYS  -- the syscall does not exist: guests, which must not kexec.
+ *   EPERM   -- refused before parsing: KEXEC_SIG + lockdown gating, the
+ *              correct host posture (only signed kernels load).
+ *   ENOEXEC/EINVAL -- the kernel PARSED our garbage: the syscall is open to
+ *              any root-supplied image.  Without KEXEC_SIG the lockdown LSM
+ *              never sees kexec_file_load at all -- a fact we verified in
+ *              kernel/kexec_file.c, and the reason this probe exists.
+ */
+static void probe_kexec(const char *want)
+{
+	long ret;
+	int fd = open("/probe-kernel", O_RDONLY);
+	const char *got;
+
+	if (fd < 0)
+		fd = open("/init", O_RDONLY);	/* garbage fallback: only
+						 * distinguishes enosys */
+
+	ret = syscall(SYS_kexec_file_load, fd, -1, 1L, "", 0x4 /*NO_INITRAMFS*/);
+	if (ret == 0) {
+		/* The kernel accepted an UNSIGNED image: kexec_file_load is
+		 * open to any root-supplied kernel on this config.  Unload so
+		 * nothing lingers armed. */
+		got = "loaded";
+		syscall(SYS_kexec_file_load, -1, -1, 1L, "", 0x1 /*UNLOAD*/);
+	} else if (errno == ENOSYS)
+		got = "enosys";
+	else if (errno == EPERM)
+		got = "eperm";
+	else
+		got = "enoexec";
+	close(fd);
+	if (want && strcmp(want, got) != 0) {
+		char buf[64];
+		snprintf(buf, sizeof(buf), "want %s got %s (errno=%d)", want, got, errno);
+		bad("kexec-policy", buf);
+	} else {
+		char buf[64];
+		snprintf(buf, sizeof(buf), "%s%s", got,
+			 !strcmp(got,"loaded") ? " (unsigned kernel ACCEPTED)" : "");
+		ok("kexec-policy", buf);
+	}
+}
+
+static const char *cmdline_val(const char *cl, const char *key, char *val)
+{
+	/* copies value of key=val into caller storage (>=32 bytes), or NULL.
+	 * (The first version used one static buffer for every caller, so the
+	 * second lookup silently overwrote the first -- caught by the smoke
+	 * run itself printing "want required" for the kexec probe.) */
+	const char *p = strstr(cl, key);
+
+	if (!p)
+		return NULL;
+	p += strlen(key);
+	sscanf(p, "%31s", val);
+	return val;
+}
+
 int main(void)
 {
+	static char cl[1024];
+	static char kexec_buf[32], luo_buf[32];
+	const char *kexec_want, *luo_want;
 	mount("proc", "/proc", "proc", 0, NULL);
 	mount("sysfs", "/sys", "sysfs", 0, NULL);
 	mount("devtmpfs", "/dev", "devtmpfs", 0, NULL);
 	mount("securityfs", "/sys/kernel/security", "securityfs", 0, NULL);
+	mount("debugfs", "/sys/kernel/debug", "debugfs", 0, NULL);
 
-	{
-		char cl[1024] = "";
-		slurp("/proc/cmdline", cl, sizeof(cl));
-		guest = strstr(cl, "kvmhost.expect=guest") != NULL;
-	}
+	slurp("/proc/cmdline", cl, sizeof(cl));
+	guest = strstr(cl, "kvmhost.expect=guest") != NULL;
+	kexec_want = cmdline_val(cl, "kvmhost.kexec=", kexec_buf);
+	luo_want = cmdline_val(cl, "kvmhost.luo=", luo_buf);
 	printf("\nKVMHOST init: userspace reached (expect=%s)\n",
 	       guest ? "guest" : "host");
 
@@ -120,6 +197,22 @@ int main(void)
 		want_present("modules-sig-forced",
 			     "/sys/module/module/parameters/sig_enforce", "Y");
 	want_absent("no-devmem", "/dev/mem", "CONFIG_DEVMEM=n");
+	probe_kexec(kexec_want);
+	if (luo_want && !strcmp(luo_want, "required")) {
+		/* The destination track's reason to exist: prove it is live,
+		 * not merely compiled. */
+		/* The FDT is binary; existence is the assertion, not content. */
+		if (access("/sys/kernel/debug/kho/out/fdt", F_OK) == 0)
+			ok("kho-armed", "out/fdt present");
+		else
+			bad("kho-armed", "no /sys/kernel/debug/kho/out/fdt");
+		if (access("/dev/liveupdate", F_OK) == 0)
+			ok("luo-device", "/dev/liveupdate");
+		else
+			bad("luo-device", "absent");
+	} else if (luo_want) {
+		want_absent("no-luo", "/dev/liveupdate", "v1/guest kernel");
+	}
 
 	printf(failures ? "KVMHOST SMOKE-FAIL\n" : "KVMHOST SMOKE-OK\n");
 	sync();

@@ -75,11 +75,9 @@ for f in $base; do add "$f"; done
 
 # --- platform: metal owns the machine; vm owns nothing ----------------------
 platform=${KVMHOST_PLATFORM:-${PLATFORM:-metal}}
-if [ "$platform" != "metal" ]; then
-	[ -f "$REPO/configs/fragments/platform-$platform.config" ] ||
-		{ echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
-	add "platform-$platform"
-fi
+[ -f "$REPO/configs/fragments/platform-$platform.config" ] ||
+	{ echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
+add "platform-$platform"
 
 # --- role layers -------------------------------------------------------------
 for f in ${LAYERS:-}; do add "$f"; done
@@ -176,8 +174,8 @@ echo "==> verifying intent survived Kconfig resolution"
 sh "$REPO/scripts/check-config.sh" "$SRC/.config" $fragments
 
 mkdir -p "$OUT"
-cfgname=$PROFILE
-[ "$KARCH" != "x86_64" ] && cfgname="$PROFILE-$KARCH"
+cfgname=$PROFILE${KVMHOST_TRACK:+-$KVMHOST_TRACK}
+[ "$KARCH" != "x86_64" ] && cfgname="$cfgname-$KARCH"
 cp "$SRC/.config" "$OUT/$cfgname.config"
 
 if [ "${CONFIG_ONLY:-0}" = "1" ]; then
@@ -188,8 +186,8 @@ fi
 echo "==> building with $JOBS jobs"
 make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" -j"$JOBS" "$KIMG"
 
-suffix=$PROFILE
-[ "$KARCH" != "x86_64" ] && suffix="$PROFILE-$KARCH"
+suffix=$PROFILE${KVMHOST_TRACK:+-$KVMHOST_TRACK}
+[ "$KARCH" != "x86_64" ] && suffix="$suffix-$KARCH"
 cp "$SRC/$KIMG_PATH" "$OUT/$KIMG-$suffix"
 size=$(stat -c %s "$OUT/$KIMG-$suffix")
 printf '==> %s-%s: %s bytes (%s KiB)\n' "$KIMG" "$suffix" "$size" "$((size / 1024))"

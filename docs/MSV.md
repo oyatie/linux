@@ -68,13 +68,24 @@ Lower it: dropping live update. Without LUO the floor falls to **v6.6**
 trade, and it is a product decision, not a build one — a fleet without live
 update patches by draining and rebooting every machine.
 
-## Architecture caveat
+## arm64 floors — derived, not inherited
 
-Every floor above was probed on **x86** Kconfig paths. The arm64 build shares
-the generic floors (iommufd, VFIO cdev, PREEMPT_LAZY, KHO) but the
-arch-specific ones differ — TDX/SEV have no arm64 counterpart to floor, and
-arm64-only features (SMMUv3 nesting, MPAM, CCA) will need their own probe
-before arm64 becomes a v1 track rather than a validated port.
+`FLOOR_ARCH=arm64 make msv` probes the arm64-specific paths. Result: **every
+arm64 feature we use clears MSV=6.18**, so the shared floor holds for both
+architectures:
+
+| Feature | Floor |
+|---|---|
+| KHO arch support (arm64) | v6.16 |
+| Lazy preemption on arm64 | v6.16 |
+| SMMUv3 iommufd support | v6.13 |
+| kexec Image signature, MTE, BTI, PAuth, E0PD, Spectre-BHB, RAS extn, CMN PMU | ≤ v6.1 |
+
+TDX/SEV have no arm64 counterpart to floor; Arm CCA will add a row when its
+host side lands. Note the probe grew two modes for this: `+SYM` (arch
+capability `select`s that never become prompts — how lazy preempt is wired)
+and `@path` (features that exist as gated source files rather than Kconfig
+symbols — how SMMUv3-iommufd ships).
 
 ## Caveat on the method
 

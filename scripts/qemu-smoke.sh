@@ -39,6 +39,20 @@ if [ "$KARCH" = "arm64" ]; then
 fi
 LOG=$(mktemp)
 
+# Expectation flags for the init's assertions.
+#   kexec: guests have no syscall (enosys); hosts must be policy-gated (eperm)
+#          unless the caller overrides to record a known gap.
+#   luo:   required on host kernels at/above the LUO floor, absent otherwise.
+EXPECT=${EXPECT:-host}
+if [ -z "${KEXEC_WANT:-}" ]; then
+	[ "$EXPECT" = "guest" ] && KEXEC_WANT=enosys || KEXEC_WANT=eperm
+fi
+LUO_WANT=absent
+if [ "$EXPECT" = "host" ] && [ -n "${KVER:-}" ] && [ -n "${LUO_FLOOR:-}" ]; then
+	vn() { printf '%d%03d' "${1%%.*}" "$(echo "$1" | cut -d. -f2)"; }
+	[ "$(vn "$KVER")" -ge "$(vn "$LUO_FLOOR")" ] && LUO_WANT=required
+fi
+
 echo "==> booting $BZIMAGE under QEMU (timeout ${TIMEOUT}s)"
 $QEMU \
 	-machine "$MACHINE" \
@@ -50,7 +64,7 @@ $QEMU \
 	-no-reboot \
 	-kernel "$BZIMAGE" \
 	-initrd "$INITRD" \
-	-append "console=$CONSOLE panic=1 rdinit=/init printk.time=1 kvmhost.expect=${EXPECT:-host}" \
+	-append "console=$CONSOLE panic=1 rdinit=/init printk.time=1 kvmhost.expect=$EXPECT kvmhost.kexec=$KEXEC_WANT kvmhost.luo=$LUO_WANT${LUO_WANT:+ }$([ "$LUO_WANT" = required ] && echo liveupdate=on)" \
 	>"$LOG" 2>&1 &
 qemu_pid=$!
 

@@ -17,6 +17,9 @@ JOBS           ?=
 PROFILE        ?= hypervisor
 # Target architecture: x86_64 (default) or arm64 (Graviton/Ampere/Grace).
 KARCH          ?= x86_64
+# Destination-track artifacts get a -dst suffix so the two tracks coexist in
+# out/ -- learned after a 7.2 build silently overwrote the v1 bzImage.
+TRACK_TAG      := $(if $(filter $(DESTINATION_VERSION),$(KERNEL_VERSION)),dst,)
 KVMHOST_EXTRA  ?=
 # Which NIC families to build in.  Empty = all of them (portable image).
 KVMHOST_NICS   ?=
@@ -35,6 +38,7 @@ DOCKER_RUN = docker run --rm \
 	-e KVMHOST_CPU="$(CPU)" \
 	-e KVMHOST_PLATFORM="$(PLATFORM)" \
 	-e KVMHOST_ARCH="$(KARCH)" \
+	-e KVMHOST_TRACK="$(TRACK_TAG)" \
 	-e PROFILE="$(PROFILE)" \
 	-e MSV="$(MSV)" \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
@@ -139,18 +143,31 @@ config-diff:
 validate-all: | $(OUT)
 	VALIDATE_VERSIONS="$(KERNEL_VERSION) $(DESTINATION_VERSION)" ./scripts/validate-matrix.sh
 
+# The initramfs embeds that arch's host kernel as the kexec-probe target --
+# a real unsigned image is the only thing that reaches the KEXEC_SIG gate.
+PROBE_KERNEL = $(if $(filter arm64,$(KARCH)),Image-hypervisor-arm64,bzImage-hypervisor)
 initramfs: | $(OUT)
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro -v $(OUT):/out \
-		-e KVMHOST_ARCH=$(KARCH) $(IMAGE) /repo/scripts/mkinitramfs.sh
+		-e KVMHOST_ARCH=$(KARCH) -e PROBE_KERNEL=$(PROBE_KERNEL) \
+		$(IMAGE) /repo/scripts/mkinitramfs.sh
 
 # Guest profiles assert a guest-shaped kernel (no KVM, no modules); fc-guest
 # boots on QEMU's microvm machine, the faithful stand-in for Firecracker's
 # virtio-mmio world.  scripts/fc-smoke.sh runs the REAL VMM on a Linux+KVM box.
 SMOKE_MACHINE = $(if $(filter fc-guest,$(PROFILE)),microvm,q35)
 SMOKE_EXPECT  = $(if $(filter ch-guest ch-guest-k8s fc-guest,$(PROFILE)),guest,host)
-SMOKE_KERNEL  = $(if $(filter arm64,$(KARCH)),$(OUT)/Image-$(PROFILE)-arm64,$(OUT)/bzImage-$(PROFILE))
+SMOKE_SUFFIX  = $(PROFILE)$(if $(TRACK_TAG),-$(TRACK_TAG))$(if $(filter arm64,$(KARCH)),-arm64)
+SMOKE_KERNEL  = $(if $(filter arm64,$(KARCH)),$(OUT)/Image-$(SMOKE_SUFFIX),$(OUT)/bzImage-$(SMOKE_SUFFIX))
+# kexec policy differs per SKU: hosts must be sig-gated (eperm), fc-guest has
+# no kexec syscall at all (enosys), ch-guest keeps plain kdump -- root in a
+# guest owns the guest kernel anyway (enoexec = parsed, no gate).
+# hosts: unsigned image refused at the gate (eperm).  ch-guest: no gate by
+# design (root owns the guest kernel) -- the unsigned image loads.  fc-guest:
+# no syscall at all.
+SMOKE_KEXEC   = $(if $(filter fc-guest,$(PROFILE)),enosys,$(if $(filter ch-guest ch-guest-k8s,$(PROFILE)),loaded,eperm))
 smoke: initramfs
 	KARCH=$(KARCH) MACHINE=$(SMOKE_MACHINE) EXPECT=$(SMOKE_EXPECT) \
+	KVER=$(KERNEL_VERSION) LUO_FLOOR=$(LUO_FLOOR) KEXEC_WANT=$(SMOKE_KEXEC) \
 		./scripts/qemu-smoke.sh $(SMOKE_KERNEL) $(OUT)/initramfs-$(KARCH).cpio.gz
 
 smoke-fc:

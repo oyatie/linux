@@ -17,6 +17,22 @@ TAGS=${TAGS:-"v6.1 v6.6 v6.12 v6.18 v7.0 v7.1 v7.2"}
 RAW=https://raw.githubusercontent.com/torvalds/linux
 
 # feature | symbols (alternates separated by ,) | candidate Kconfig paths
+# arm64 floors probe the arm64 Kconfig paths; the shared/generic features
+# above them apply to both architectures.
+FEATURES_ARM64='
+KHO arch support (arm64)|ARCH_SUPPORTS_KEXEC_HANDOVER|arch/arm64/Kconfig
+Lazy preemption (arm64)|+ARCH_HAS_PREEMPT_LAZY|arch/arm64/Kconfig
+kexec Image signature|KEXEC_IMAGE_VERIFY_SIG|kernel/Kconfig.kexec arch/arm64/Kconfig
+SMMUv3 iommufd support|@drivers/iommu/arm/arm-smmu-v3/arm-smmu-v3-iommufd.c|-
+Memory tagging (MTE)|ARM64_MTE|arch/arm64/Kconfig
+Branch Target Id (BTI)|ARM64_BTI|arch/arm64/Kconfig
+Pointer auth|ARM64_PTR_AUTH|arch/arm64/Kconfig
+E0PD|ARM64_E0PD|arch/arm64/Kconfig
+Spectre-BHB mitigation|MITIGATE_SPECTRE_BRANCH_HISTORY|arch/arm64/Kconfig
+RAS extension|ARM64_RAS_EXTN|arch/arm64/Kconfig
+CMN mesh PMU|ARM_CMN|drivers/perf/Kconfig
+'
+
 FEATURES='
 Live Update Orchestrator|LIVEUPDATE|kernel/liveupdate/Kconfig
 LUO memfd handover|LIVEUPDATE_MEMFD|kernel/liveupdate/Kconfig
@@ -45,10 +61,21 @@ Landlock|SECURITY_LANDLOCK|security/landlock/Kconfig
 
 has_symbol() {
 	tag=$1 syms=$2 paths=$3
+	# Probe modes: plain SYM greps `^config SYM`; +SYM greps `select SYM`
+	# (for arch capability selects that never become prompts); @path tests
+	# that the file itself exists at the tag.
+	case $syms in
+	@*)
+		curl -fsSIL --max-time 20 "$RAW/$tag/${syms#@}" >/dev/null 2>&1
+		return $? ;;
+	esac
 	for path in $paths; do
 		body=$(curl -fsSL --max-time 20 "$RAW/$tag/$path" 2>/dev/null) || continue
 		for sym in $(echo "$syms" | tr ',' ' '); do
-			if echo "$body" | grep -q "^config $sym\$"; then return 0; fi
+			case $sym in
+			+*) echo "$body" | grep -q "select ${sym#+}\b" && return 0 ;;
+			*)  echo "$body" | grep -q "^config $sym\$" && return 0 ;;
+			esac
 		done
 	done
 	return 1
@@ -57,7 +84,10 @@ has_symbol() {
 printf '%-30s %s\n' "FEATURE" "MINIMUM VERSION"
 printf '%-30s %s\n' "------------------------------" "---------------"
 
-echo "$FEATURES" | while IFS='|' read -r name syms paths; do
+list=$FEATURES
+[ "${FLOOR_ARCH:-x86}" = "arm64" ] && list=$FEATURES_ARM64
+
+echo "$list" | while IFS='|' read -r name syms paths; do
 	[ -n "$name" ] || continue
 	floor=""
 	for tag in $TAGS; do

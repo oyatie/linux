@@ -52,8 +52,10 @@ update are mutually exclusive. `kver-6.18.config` chooses live update, on the
 grounds that a fleet that can kexec-with-handover rarely cold-boots. 7.2
 dropped the restriction and gets both.
 
-Both tracks use `kexec_file_load` only. The old `kexec_load` syscall takes an
-unverified image from userspace; lockdown refuses it, and so do we.
+Both tracks use `kexec_file_load` only, with `KEXEC_SIG` compiled in -- which
+matters more than it sounds: the lockdown refusal of unsigned kexec images
+*only exists* via the KEXEC_SIG code path. The old `kexec_load` syscall is
+not compiled in at all.
 
 ## Tier 3 — drain and reboot
 
