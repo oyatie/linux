@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -179,6 +179,14 @@ shell:
 
 clean:
 	rm -rf $(OUT)
+
+# Scrub the shared volume's kernel object tree (keeps the source).  Needed
+# after an interrupted build: a SIGKILL mid-write leaves half-written *.cmd
+# files that later detonate as "unterminated variable reference" in an
+# unrelated subsystem.  Cheaper than distclean (which re-downloads source).
+tree-clean:
+	docker run --rm -v $(SRC_VOLUME):/build $(IMAGE) sh -c \
+		'cd /build/linux-$(KERNEL_VERSION) && make -s ARCH=$(KARCH) clean'
 
 distclean: clean
 	-docker volume rm $(SRC_VOLUME)

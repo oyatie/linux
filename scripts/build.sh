@@ -13,6 +13,16 @@
 # which is applied last.
 set -eu
 
+# Immunity against being edited while a long build is executing us: the shell
+# reads scripts incrementally, so an edit shifts bytes under a running build
+# and detonates as a syntax error hours in.  This bit twice before the fix.
+if [ -z "${KVMHOST_EXECED:-}" ]; then
+	cp "$0" /tmp/build-self.sh
+	KVMHOST_EXECED=1
+	export KVMHOST_EXECED
+	exec sh /tmp/build-self.sh
+fi
+
 SRC=${SRC:-/src}
 REPO=${REPO:-/repo}
 OUT=${OUT:-/out}
