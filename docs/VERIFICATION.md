@@ -24,6 +24,7 @@ hardware or a Linux+KVM host**.
 | **Signed kexec accepted** | signed image loads on a trust-anchored kernel | `make signed-kexec` |
 | Reproducible build | byte-identical .config/vmlinux/bzImage across clean rebuilds | `make repro` |
 | **UEFI Secure Boot enforcement** | dev CA enrolled as PK/KEK/db in OVMF; firmware launches the signed kernel and refuses a tampered one (Access Denied) | `make secureboot` |
+| **KHO/LUO state handover** | a memfd's bytes survive a *signed* kexec across two kernels (in-tree luo_kexec_simple selftest) | `make luo` |
 | arm64 is a real target | full ship set builds + boots under HVF (KVM at EL2) | `make smoke KARCH=arm64` |
 
 ## Needs real hardware or a Linux+KVM host
@@ -35,7 +36,6 @@ hardware or a Linux+KVM host**.
 | RAS/EDAC error handling recovers | needs a real memory controller + error injection |
 | **Real performance numbers** | every timing here is TCG/HVF — meaningless for perf (crypto throughput, boot time, packet rate) |
 | Real Firecracker / Cloud Hypervisor boot | no `/dev/kvm` in the Linux VM here (HVF exposes no nested virt); `scripts/fc-smoke.sh` runs the real VMM on a KVM host |
-| Full KHO/LUO state handover | the mechanism is armed and the device is present; preserving a live memfd across a real kexec needs the LUO userspace client and is a KVM-host exercise |
 | Bare-metal boot, DPU offload, GPU passthrough | need the hardware |
 | Production workload scoping | `make audit` proves every symbol is a *decision*; it cannot prove a kept feature is ever *touched* — that needs ftrace/perf on a running fleet |
 
@@ -46,4 +46,6 @@ proven here. Everything that is a *property of real silicon, real firmware
 enforcement, or real load* is not, and is honestly out of reach without
 hardware. The signing chain is now fully proven -- root (dm-verity signed hash), kernel
 (UEFI Secure Boot launches signed, refuses tampered), and next-kernel (signed
-kexec accepted, unsigned refused) -- all in-container under OVMF + QEMU TCG.
+kexec accepted, unsigned refused) -- all in-container/QEMU TCG.  And KHO/LUO carries live memfd state across that
+signed kexec -- the destination track's whole reason to exist, proven with the
+kernel's own selftest.
