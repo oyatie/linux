@@ -38,6 +38,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         systemd-boot-efi \
         systemd-ukify \
         qemu-system-x86 \
+        qemu-system-arm \
+        qemu-utils \
+        swtpm \
+        iproute2 \
         make \
         openssl \
         pahole \

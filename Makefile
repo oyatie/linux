@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw fc-real unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -225,6 +225,10 @@ luo:
 
 # Exercise NVMe / VT-d IOMMU / NUMA / Intel-NIC driver paths against emulated
 # hardware (needs KVMHOST_NICS=intel so igb has a driver).
+# Boot fc-guest under REAL Firecracker on nested KVM (needs /dev/kvm).
+fc-real:
+	./scripts/fc-real.sh
+
 hw: initramfs
 	./scripts/hw-smoke.sh $(OUT)/bzImage-hypervisor $(OUT)/initramfs-x86_64.cpio.gz
 

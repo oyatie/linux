@@ -26,6 +26,7 @@ hardware or a Linux+KVM host**.
 | **UEFI Secure Boot enforcement** | dev CA enrolled as PK/KEK/db in OVMF; firmware launches the signed kernel and refuses a tampered one (Access Denied) | `make secureboot` |
 | **KHO/LUO state handover** | a memfd's bytes survive a *signed* kexec across two kernels (in-tree luo_kexec_simple selftest) | `make luo` |
 | **Hardware driver paths (emulated)** | NVMe, Intel VT-d IOMMU, multi-node NUMA and the Intel igb NIC all bind against QEMU device models under TCG | `make hw` |
+| **Real Firecracker on nested KVM** | fc-guest (arm64) boots to userspace under real Firecracker + real /dev/kvm (nested virt in the colima VM: M-series + vz) | `make fc-real` |
 | arm64 is a real target | full ship set builds + boots under HVF (KVM at EL2) | `make smoke KARCH=arm64` |
 
 ## Needs real hardware or a Linux+KVM host
@@ -37,7 +38,6 @@ hardware or a Linux+KVM host**.
 | SEV / TDX confidential compute | needs the silicon + firmware |
 | RAS/EDAC error recovery | GHES/APEI error injection isn't cleanly exposed by this QEMU build; the EDAC/GHES *drivers* bind, but exercising a real corrected/uncorrected error needs hardware or a QEMU with ACPI error injection |
 | **Real performance numbers** | every timing here is TCG/HVF — meaningless for perf (crypto throughput, boot time, packet rate) |
-| Real Firecracker / Cloud Hypervisor boot | no `/dev/kvm` in the Linux VM here (HVF exposes no nested virt); `scripts/fc-smoke.sh` runs the real VMM on a KVM host |
 | Bare-metal boot, DPU offload, GPU passthrough | need the hardware |
 | Production workload scoping | `make audit` proves every symbol is a *decision*; it cannot prove a kept feature is ever *touched* — that needs ftrace/perf on a running fleet |
 

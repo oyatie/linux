@@ -16,6 +16,8 @@ esac
 CC=${CROSS}gcc
 
 mkdir -p "$WORK/root/proc" "$WORK/root/sys/kernel/security" "$WORK/root/dev"
+mknod "$WORK/root/dev/console" c 5 1 2>/dev/null || true
+mknod "$WORK/root/dev/null" c 1 3 2>/dev/null || true
 
 # A real, well-formed, UNSIGNED kernel image for the kexec-policy probe.
 # Feeding kexec_file_load garbage proves nothing -- the arch loader's format
@@ -44,6 +46,7 @@ cat >"$WORK/init.c" <<'EOF'
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <time.h>
 
 static int failures;
 static int guest;   /* kvmhost.expect=guest on the command line */
@@ -173,6 +176,18 @@ int main(void)
 	mount("securityfs", "/sys/kernel/security", "securityfs", 0, NULL);
 	mount("debugfs", "/sys/kernel/debug", "debugfs", 0, NULL);
 
+	/* Route stdio to the kernel log (/dev/kmsg): it reaches the serial console
+	 * via printk regardless of how the VMM wired the initial console.  QEMU
+	 * set up init's console implicitly; Firecracker does not ("unable to open
+	 * an initial console"), so /dev/console alone leaves the asserts invisible.
+	 * setvbuf(line) so each printf becomes one kmsg record. */
+	{
+		int c = open("/dev/kmsg", O_WRONLY);
+		if (c < 0) c = open("/dev/console", O_WRONLY);
+		if (c >= 0) { dup2(c, 1); dup2(c, 2); if (c > 2) close(c); }
+		setvbuf(stdout, NULL, _IOLBF, 0);
+	}
+
 	slurp("/proc/cmdline", cl, sizeof(cl));
 	guest = strstr(cl, "kvmhost.expect=guest") != NULL;
 	kexec_want = cmdline_val(cl, "kvmhost.kexec=", kexec_buf);
@@ -242,6 +257,8 @@ int main(void)
 	}
 	printf(failures ? "KVMHOST SMOKE-FAIL\n" : "KVMHOST SMOKE-OK\n");
 	sync();
+	sleep(2);  /* let kmsg fully drain to the (slow PL011) serial before
+		   * the VMM cuts power -- Firecracker poweroff is instant */
 	reboot(RB_POWER_OFF);
 	return 0;
 }
