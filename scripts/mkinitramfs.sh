@@ -137,8 +137,12 @@ static void probe_kexec(const char *want)
 		bad("kexec-policy", buf);
 	} else {
 		char buf[64];
+		/* On a KEXEC_SIG + lockdown kernel, "loaded" only happens if the
+		 * image signature verified against a trusted key, so it is the
+		 * correct result for a SIGNED probe target; "eperm" is correct
+		 * for an unsigned one. */
 		snprintf(buf, sizeof(buf), "%s%s", got,
-			 !strcmp(got,"loaded") ? " (unsigned kernel ACCEPTED)" : "");
+			 !strcmp(got,"loaded") ? " (signature verified against keyring)" : "");
 		ok("kexec-policy", buf);
 	}
 }

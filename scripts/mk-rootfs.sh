@@ -15,7 +15,7 @@ mkdir -p "$WORK/root/sbin" "$WORK/root/etc"
 printf 'kvmhost verity root\n' > "$WORK/root/etc/os-release-marker"
 cp "$OUT/init" "$WORK/root/sbin/init" 2>/dev/null || printf '#!/bin/sh\n' > "$WORK/root/sbin/init"
 
-mkfs.erofs -q "$OUT/root.erofs" "$WORK/root"
+mkfs.erofs "$OUT/root.erofs" "$WORK/root"
 size=$(stat -c %s "$OUT/root.erofs")
 
 # Seal with verity; capture the root hash.

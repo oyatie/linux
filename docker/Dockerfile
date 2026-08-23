@@ -41,11 +41,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         zstd \
     && rm -rf /var/lib/apt/lists/*
 
+# KBUILD_BUILD_VERSION pins the per-build counter (.version increments each
+# link otherwise -> "#1" vs "#17" in the version string -> non-reproducible).
 ENV ARCH=x86_64 \
     CROSS_COMPILE=x86_64-linux-gnu- \
     KBUILD_BUILD_USER=kvmhost \
     KBUILD_BUILD_HOST=builder \
     KBUILD_BUILD_TIMESTAMP="Thu Jan  1 00:00:00 UTC 1970" \
+    KBUILD_BUILD_VERSION=1 \
     SOURCE_DATE_EPOCH=0
 
 WORKDIR /build

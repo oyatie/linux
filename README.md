@@ -101,6 +101,7 @@ docs/LAYERS.md               what differs between roles, and why
 docs/LIVEUPDATE.md           livepatch / kexec handover / drain, per layer
 docs/MSV.md                  minimum kernel version, derived per feature
   docs/HARDENING.md            independent KSPP/CLIP/grsec audit + divergences
+  docs/VERIFICATION.md         what's proven in-software vs needs hardware
 docs/COMPARISON.md           measured against Talos, Alpine, Rocky, UEK
 docs/PROVIDERS.md            provider patterns; GPU and CPU vendor splits
 docs/CHECKLISTS.md           capability audits + what they caught

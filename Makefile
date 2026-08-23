@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -195,6 +195,28 @@ smoke: initramfs
 
 smoke-fc:
 	./scripts/fc-smoke.sh $(OUT)/vmlinux-fc-guest $(OUT)/initramfs.cpio.gz
+
+# Boot/update signature chain: dev PKI -> verity-sealed root -> signed UKI.
+# Proves the mechanism end to end (sbverify + veritysetup verify); production
+# swaps the dev CA for the fleet CA in an HSM.
+pki:
+	docker run --rm -v $(CURDIR)/out:/out -v $(CURDIR):/repo:ro $(IMAGE) \
+		sh -c 'OUT=/out /repo/scripts/pki-init.sh'
+
+artifact: pki initramfs
+	docker run --rm -v $(CURDIR)/out:/out -v $(CURDIR):/repo:ro $(IMAGE) \
+		sh -c 'OUT=/out REPO=/repo /repo/scripts/mk-rootfs.sh'
+	docker run --rm -v $(CURDIR)/out:/out -v $(CURDIR):/repo:ro $(IMAGE) \
+		sh -c 'OUT=/out /repo/scripts/mk-uki.sh $(PROFILE) /out/bzImage-$(PROFILE)'
+
+# Prove the same source + fragments -> byte-identical bzImage.
+repro:
+	./scripts/repro-check.sh $(PROFILE)
+
+# Prove a SIGNED kexec target is accepted (the converse of the unsigned=EPERM
+# that `make smoke` already asserts).
+signed-kexec:
+	./scripts/signed-kexec-smoke.sh
 
 shell:
 	docker run --rm -it -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro \
