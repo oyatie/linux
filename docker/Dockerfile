@@ -26,6 +26,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libncurses-dev \
         libssl-dev \
         lz4 \
+        sbsigntool \
+        erofs-utils \
+        cryptsetup-bin \
+        mtools \
+        dosfstools \
+        uuid-runtime \
         make \
         openssl \
         pahole \

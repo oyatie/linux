@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -66,6 +66,7 @@ help:
 	@echo "  make msv              recompute the minimum supported kernel version"
 	@echo "  make unused           fail if any fragment is unreachable"
 	@echo "  make audit            fail if any default-on feature is un-accounted"
+	@echo "  make hardening        third-party KSPP/CLIP/grsec score of PROFILE"
 	@echo "  make menuconfig       explore interactively on top of the resolved config"
 	@echo "  make config-diff      show what menuconfig changed, as fragment lines"
 	@echo "  make smoke            boot the built kernel under QEMU and assert on it"
@@ -118,6 +119,11 @@ msv:
 # Fail if a fragment exists that no profile or knob can select.
 unused:
 	./scripts/unused-fragments.sh
+
+# Independent third-party hardening score (KSPP/CLIP/grsec) of the current
+# PROFILE.  Fetches the checker into a cache on first use.
+hardening: config
+	./scripts/hardening-check.sh $(PROFILE)
 
 # The scoping gate: every default-on feature must be requested, implied, or in
 # configs/accept-defaults.config.  Runs against the current PROFILE/KARCH.
