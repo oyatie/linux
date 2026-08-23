@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw fc-real unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw fc-real ch-real tpm viommu diag perf unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -225,12 +225,22 @@ luo:
 
 # Exercise NVMe / VT-d IOMMU / NUMA / Intel-NIC driver paths against emulated
 # hardware (needs KVMHOST_NICS=intel so igb has a driver).
-# Boot fc-guest under REAL Firecracker on nested KVM (needs /dev/kvm).
-fc-real:
+# --- Emulation-based tests (your map): exercise real driver/RAS/security
+# paths against device models and in-kernel frameworks, no silicon needed.
+fc-real:            # real Firecracker on nested KVM (arm64 guest)
 	./scripts/fc-real.sh
-
-hw: initramfs
+ch-real:            # real Cloud Hypervisor on nested KVM (arm64 guest)
+	./scripts/ch-real.sh
+hw: initramfs       # NVMe / VT-d / NUMA / Intel NIC driver paths
 	./scripts/hw-smoke.sh $(OUT)/bzImage-hypervisor $(OUT)/initramfs-x86_64.cpio.gz
+tpm:                # swtpm-backed TPM 2.0 measured-boot plumbing
+	./scripts/tpm-smoke.sh
+viommu:             # virtio-iommu (paravirt IOMMU) translating for a guest
+	./scripts/emu-smoke.sh bzImage-ch-guest "kvmhost.viommu=1 kvmhost.expect=guest" -device virtio-iommu-pci -device virtio-net-pci,netdev=n0 -netdev user,id=n0
+diag:               # netdevsim SR-IOV VFs + MCE/fault injection interfaces
+	./scripts/emu-smoke.sh bzImage-hypervisor kvmhost.diag=1
+perf:               # deterministic (instruction-proportional) boot-cost metric
+	./scripts/perf-icount.sh
 
 secureboot:
 	docker run --rm -v $(CURDIR)/out:/out -v $(CURDIR):/repo:ro $(IMAGE) \

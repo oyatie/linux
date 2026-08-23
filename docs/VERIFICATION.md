@@ -26,15 +26,19 @@ hardware or a Linux+KVM host**.
 | **UEFI Secure Boot enforcement** | dev CA enrolled as PK/KEK/db in OVMF; firmware launches the signed kernel and refuses a tampered one (Access Denied) | `make secureboot` |
 | **KHO/LUO state handover** | a memfd's bytes survive a *signed* kexec across two kernels (in-tree luo_kexec_simple selftest) | `make luo` |
 | **Hardware driver paths (emulated)** | NVMe, Intel VT-d IOMMU, multi-node NUMA and the Intel igb NIC all bind against QEMU device models under TCG | `make hw` |
-| **Real Firecracker on nested KVM** | fc-guest (arm64) boots to userspace under real Firecracker + real /dev/kvm (nested virt in the colima VM: M-series + vz) | `make fc-real` |
+| **Real Firecracker / Cloud Hypervisor on nested KVM** | fc-guest / ch-guest (arm64) boot to userspace under the real KVM-only VMMs (nested virt: M-series + vz) | `make fc-real` / `make ch-real` |
+| **TPM 2.0 measured boot** | swtpm + tpm-crb: driver binds, SHA-256 PCR readable | `make tpm` |
+| **virtio-iommu** | paravirt IOMMU binds and groups PCI devices in the guest | `make viommu` |
+| **SR-IOV orchestration / RAS injection** | netdevsim VF create+delete; MCE + block fault injection interfaces live | `make diag` |
+| **Deterministic perf metric** | `-icount` instruction-proportional boot-time, identical run-to-run | `make perf` |
 | arm64 is a real target | full ship set builds + boots under HVF (KVM at EL2) | `make smoke KARCH=arm64` |
 
 ## Needs real hardware or a Linux+KVM host
 
 | Claim | Why it can't be proven here |
 |---|---|
-| mlx5 / ice / bnxt datacenter NICs | QEMU models no ConnectX/E810/Thor -- only e1000e/igb/vmxnet3/virtio, so those driver paths need the real cards (the igb/e1000e/NVMe/VT-d paths ARE exercised by `make hw`) |
-| SR-IOV VF live migration (mlx5) | the VFIO variant-driver path needs real mlx5 |
+| mlx5 / ice / bnxt datacenter NIC *data* paths | QEMU models none of them; netdevsim (`make diag`) covers the SR-IOV *control* plane, but the real driver data path needs the cards |
+| SEV / TDX real memory encryption | host stacks compile and a guest can boot in SEV-sim under TCG, but there is no actual encryption/attestation without the silicon |
 | SEV / TDX confidential compute | needs the silicon + firmware |
 | RAS/EDAC error recovery | GHES/APEI error injection isn't cleanly exposed by this QEMU build; the EDAC/GHES *drivers* bind, but exercising a real corrected/uncorrected error needs hardware or a QEMU with ACPI error injection |
 | **Real performance numbers** | every timing here is TCG/HVF — meaningless for perf (crypto throughput, boot time, packet rate) |

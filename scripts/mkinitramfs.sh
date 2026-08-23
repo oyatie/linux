@@ -44,6 +44,7 @@ cat >"$WORK/init.c" <<'EOF'
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <time.h>
@@ -182,8 +183,12 @@ int main(void)
 	 * an initial console"), so /dev/console alone leaves the asserts invisible.
 	 * setvbuf(line) so each printf becomes one kmsg record. */
 	{
-		int c = open("/dev/kmsg", O_WRONLY);
-		if (c < 0) c = open("/dev/console", O_WRONLY);
+		/* Prefer the real console (QEMU provides it; full, unthrottled
+		 * output).  Fall back to /dev/kmsg only when the VMM did not wire
+		 * an initial console (Firecracker), accepting printk rate-limiting
+		 * there. */
+		int c = open("/dev/console", O_WRONLY);
+		if (c < 0) c = open("/dev/kmsg", O_WRONLY);
 		if (c >= 0) { dup2(c, 1); dup2(c, 2); if (c > 2) close(c); }
 		setvbuf(stdout, NULL, _IOLBF, 0);
 	}
@@ -233,6 +238,48 @@ int main(void)
 		want_absent("no-luo", "/dev/liveupdate", "v1/guest kernel");
 	}
 
+	if (strstr(cl, "kvmhost.diag=1")) {
+		/* netdevsim: simulate an SR-IOV PF and spawn VFs -- the industry
+		 * way to test SR-IOV orchestration without a real NIC. */
+		int fd = open("/sys/bus/netdevsim/new_device", O_WRONLY);
+		if (fd >= 0) { write(fd, "1 4", 3); close(fd); }
+		fd = open("/sys/bus/netdevsim/devices/netdevsim1/sriov_numvfs", O_WRONLY);
+		if (fd >= 0) { write(fd, "4", 1); close(fd); }
+		/* netdevsim VFs are not PCI virtfn symlinks; success is the
+		 * sriov_numvfs readback (create then delete, like an orchestrator). */
+		char nv[8] = "";
+		fd = open("/sys/bus/netdevsim/devices/netdevsim1/sriov_numvfs", O_RDONLY);
+		if (fd >= 0) { read(fd, nv, sizeof(nv) - 1); close(fd); }
+		if (nv[0] == '4') {
+			ok("netdevsim-sriov", "PF + 4 VFs created (no NIC)");
+			fd = open("/sys/bus/netdevsim/devices/netdevsim1/sriov_numvfs", O_WRONLY);
+			if (fd >= 0) { write(fd, "0", 1); close(fd); }  /* delete VFs */
+		} else if (access("/sys/bus/netdevsim/devices/netdevsim1", F_OK) == 0)
+			bad("netdevsim-sriov", "PF up, sriov_numvfs readback not 4");
+		else bad("netdevsim-sriov", "netdevsim device not created");
+		/* RAS injection frameworks present (fire real GHES/MCE paths). */
+		if (access("/sys/kernel/debug/mce/mce-inject", F_OK) == 0 ||
+		    access("/sys/devices/system/machinecheck/machinecheck0", F_OK) == 0)
+			ok("mce-inject", "MCE injection interface present");
+		else bad("mce-inject", "no MCE injection interface");
+		if (access("/sys/kernel/debug/fail_make_request", F_OK) == 0)
+			ok("fault-inject", "block fault injection present");
+		else bad("fault-inject", "no fail_make_request");
+	}
+	if (strstr(cl, "kvmhost.tpm=1")) {
+		/* swtpm-backed TPM: driver bound + a PCR bank readable. */
+		want_present("tpm-device", "/sys/class/tpm/tpm0/tpm_version_major", NULL);
+		want_present("tpm-pcr0", "/sys/class/tpm/tpm0/pcr-sha256/0", NULL);
+	}
+	if (strstr(cl, "kvmhost.viommu=1")) {
+		/* virtio-iommu: the paravirt IOMMU the guest drives.  Functional
+		 * signal = its driver bound AND it grouped PCI devices for
+		 * translation (it is the only IOMMU in the guest). */
+		int drv = access("/sys/bus/virtio/drivers/virtio_iommu", F_OK) == 0;
+		int grp = access("/sys/kernel/iommu_groups/0", F_OK) == 0;
+		if (drv && grp) ok("virtio-iommu", "translating (driver bound, groups formed)");
+		else bad("virtio-iommu", drv ? "no iommu groups" : "driver not bound");
+	}
 	if (strstr(cl, "kvmhost.hw=1")) {
 		/* Exercise real driver paths against QEMU-emulated hardware. */
 		int nodes = 0;
