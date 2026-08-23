@@ -32,6 +32,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         mtools \
         dosfstools \
         uuid-runtime \
+        ovmf \
+        efitools \
+        python3-virt-firmware \
+        systemd-boot-efi \
+        systemd-ukify \
+        qemu-system-x86 \
         make \
         openssl \
         pahole \

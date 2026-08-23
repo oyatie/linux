@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -217,6 +217,12 @@ repro:
 # that `make smoke` already asserts).
 signed-kexec:
 	./scripts/signed-kexec-smoke.sh
+
+# Prove UEFI Secure Boot ENFORCEMENT under OVMF: firmware launches our signed
+# UKI and refuses a tampered one.  All in-container (Debian OVMF + qemu TCG).
+secureboot:
+	docker run --rm -v $(CURDIR)/out:/out -v $(CURDIR):/repo:ro $(IMAGE) \
+		sh -c 'OUT=/out /repo/scripts/secureboot-smoke.sh /out/bzImage-hypervisor'
 
 shell:
 	docker run --rm -it -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro \
