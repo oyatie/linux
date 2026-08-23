@@ -25,15 +25,17 @@ hardware or a Linux+KVM host**.
 | Reproducible build | byte-identical .config/vmlinux/bzImage across clean rebuilds | `make repro` |
 | **UEFI Secure Boot enforcement** | dev CA enrolled as PK/KEK/db in OVMF; firmware launches the signed kernel and refuses a tampered one (Access Denied) | `make secureboot` |
 | **KHO/LUO state handover** | a memfd's bytes survive a *signed* kexec across two kernels (in-tree luo_kexec_simple selftest) | `make luo` |
+| **Hardware driver paths (emulated)** | NVMe, Intel VT-d IOMMU, multi-node NUMA and the Intel igb NIC all bind against QEMU device models under TCG | `make hw` |
 | arm64 is a real target | full ship set builds + boots under HVF (KVM at EL2) | `make smoke KARCH=arm64` |
 
 ## Needs real hardware or a Linux+KVM host
 
 | Claim | Why it can't be proven here |
 |---|---|
-| NIC / IOMMU / SR-IOV / VF migration work | needs the actual cards and an IOMMU |
+| mlx5 / ice / bnxt datacenter NICs | QEMU models no ConnectX/E810/Thor -- only e1000e/igb/vmxnet3/virtio, so those driver paths need the real cards (the igb/e1000e/NVMe/VT-d paths ARE exercised by `make hw`) |
+| SR-IOV VF live migration (mlx5) | the VFIO variant-driver path needs real mlx5 |
 | SEV / TDX confidential compute | needs the silicon + firmware |
-| RAS/EDAC error handling recovers | needs a real memory controller + error injection |
+| RAS/EDAC error recovery | GHES/APEI error injection isn't cleanly exposed by this QEMU build; the EDAC/GHES *drivers* bind, but exercising a real corrected/uncorrected error needs hardware or a QEMU with ACPI error injection |
 | **Real performance numbers** | every timing here is TCG/HVF — meaningless for perf (crypto throughput, boot time, packet rate) |
 | Real Firecracker / Cloud Hypervisor boot | no `/dev/kvm` in the Linux VM here (HVF exposes no nested virt); `scripts/fc-smoke.sh` runs the real VMM on a KVM host |
 | Bare-metal boot, DPU offload, GPU passthrough | need the hardware |

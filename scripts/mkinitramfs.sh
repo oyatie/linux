@@ -218,6 +218,28 @@ int main(void)
 		want_absent("no-luo", "/dev/liveupdate", "v1/guest kernel");
 	}
 
+	if (strstr(cl, "kvmhost.hw=1")) {
+		/* Exercise real driver paths against QEMU-emulated hardware. */
+		int nodes = 0;
+		char p[64];
+		for (int i = 0; i < 16; i++) {
+			snprintf(p, sizeof(p), "/sys/devices/system/node/node%d", i);
+			if (access(p, F_OK) == 0) nodes++;
+		}
+		want_present("nvme-block", "/sys/class/nvme/nvme0/model", NULL);
+		if (access("/sys/class/iommu", F_OK) == 0 && access("/sys/class/iommu/dmar0", F_OK) == 0)
+			ok("iommu-dmar", "Intel IOMMU active");
+		else
+			bad("iommu-dmar", "no /sys/class/iommu/dmar0");
+		if (nodes >= 2) { char b[32]; snprintf(b,sizeof b,"%d nodes",nodes); ok("numa", b); }
+		else bad("numa", "expected >=2 NUMA nodes");
+		/* An emulated Intel NIC (igb) should have bound a netdev besides lo. */
+		if (access("/sys/class/net/eth0", F_OK) == 0 ||
+		    access("/sys/bus/pci/drivers/igb", F_OK) == 0)
+			ok("igb-nic", "Intel NIC driver bound");
+		else
+			bad("igb-nic", "no igb/eth0");
+	}
 	printf(failures ? "KVMHOST SMOKE-FAIL\n" : "KVMHOST SMOKE-OK\n");
 	sync();
 	reboot(RB_POWER_OFF);

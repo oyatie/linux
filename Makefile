@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -222,6 +222,11 @@ signed-kexec:
 # UKI and refuses a tampered one.  All in-container (Debian OVMF + qemu TCG).
 luo:
 	./scripts/luo-smoke.sh
+
+# Exercise NVMe / VT-d IOMMU / NUMA / Intel-NIC driver paths against emulated
+# hardware (needs KVMHOST_NICS=intel so igb has a driver).
+hw: initramfs
+	./scripts/hw-smoke.sh $(OUT)/bzImage-hypervisor $(OUT)/initramfs-x86_64.cpio.gz
 
 secureboot:
 	docker run --rm -v $(CURDIR)/out:/out -v $(CURDIR):/repo:ro $(IMAGE) \
