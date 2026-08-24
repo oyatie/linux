@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw fc-real ch-real tpm viommu diag perf unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean reclaim promote-dev promote-staging promote-canary promote-prod test
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw fc-real ch-real tpm viommu diag perf unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean reclaim promote-dev promote-staging promote-canary promote-prod test secret-scan
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -280,3 +280,6 @@ promote-prod:       # requires canary -- no skipping, no swapped binary
 
 test:               # fast unit tests (promotion gate).  Integration = smoke / validate-all
 	./scripts/test-promote.sh
+
+secret-scan:        # fail if a key/token/credential is tracked (run before sharing)
+	./scripts/secret-scan.sh

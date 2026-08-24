@@ -5,7 +5,25 @@ on:
   pull_request:
 
 jobs:
+  # Fast, no-docker gate -- fails the pipeline before the expensive jobs if a
+  # secret leaks into the tree, the promotion gate breaks, or a script is
+  # obviously wrong.
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: no secrets in the tracked tree
+        run: make secret-scan
+      - name: promotion-gate unit tests
+        run: make test
+      - name: shellcheck (advisory)
+        continue-on-error: true
+        run: |
+          sudo apt-get update && sudo apt-get install -y shellcheck
+          shellcheck -S warning scripts/*.sh
+
   hygiene:
+    needs: guard
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
