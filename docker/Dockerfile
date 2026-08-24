@@ -1,8 +1,8 @@
 # Reproducible cross-build environment for kvmhost.
 #
-# The host may be arm64 (Apple silicon) or x86_64; the target is always
-# x86_64.  We therefore always use the cross toolchain, even on x86_64
-# hosts, so that every developer produces byte-identical objects.
+# The host may be arm64 (Apple silicon) or x86_64; the target is x86_64 OR
+# arm64 (KARCH).  We always use the cross toolchain, even when host==target,
+# so that every developer produces byte-identical objects.
 FROM debian:trixie-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -19,6 +19,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         flex \
         gcc-x86-64-linux-gnu \
         libc6-dev-amd64-cross \
+        binutils-aarch64-linux-gnu \
+        gcc-aarch64-linux-gnu \
+        libc6-dev-arm64-cross \
         gcc \
         git \
         kmod \
