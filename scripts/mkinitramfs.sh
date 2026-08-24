@@ -92,6 +92,32 @@ static void want_present(const char *what, const char *path, const char *needle)
 	ok(what, buf);
 }
 
+/* THP default is RAM-dependent: the kernel force-disables it below 512 MiB
+ * of usable RAM (mm/huge_memory.c hugepage_init).  Below that line [never]
+ * is the correct default, not a config regression -- Firecracker/serverless
+ * microVMs routinely run this small.  Only demand [madvise] above it. */
+static void check_thp(void)
+{
+	char mem[256], thp[256], detail[320];
+	long memtotal_kb = 0;
+
+	if (slurp("/proc/meminfo", mem, sizeof(mem)) == 0)
+		sscanf(mem, "MemTotal: %ld kB", &memtotal_kb);
+	if (slurp("/sys/kernel/mm/transparent_hugepage/enabled", thp, sizeof(thp)) < 0) {
+		bad("thp-madvise", "absent");
+		return;
+	}
+	if (memtotal_kb && memtotal_kb < 512L * 1024) {
+		snprintf(detail, sizeof(detail),
+			 "%s  (<512M usable: THP off by kernel policy)", thp);
+		strstr(thp, "[never]") ? ok("thp-madvise", detail)
+					: bad("thp-madvise", detail);
+	} else {
+		strstr(thp, "[madvise]") ? ok("thp-madvise", thp)
+					 : bad("thp-madvise", thp);
+	}
+}
+
 /* A path whose absence is the thing being asserted. */
 static void want_absent(const char *what, const char *path, const char *why)
 {
@@ -197,7 +223,13 @@ int main(void)
 	guest = strstr(cl, "kvmhost.expect=guest") != NULL;
 	kexec_want = cmdline_val(cl, "kvmhost.kexec=", kexec_buf);
 	luo_want = cmdline_val(cl, "kvmhost.luo=", luo_buf);
-	printf("\nKVMHOST init: userspace reached (expect=%s)\n",
+	{
+		char up[64] = ""; int uf = open("/proc/uptime", O_RDONLY);
+		if (uf >= 0) { read(uf, up, sizeof(up) - 1); close(uf); }
+		char *sp = strchr(up, ' '); if (sp) *sp = 0;
+		printf("KVMHOST boot-latency %ss (kernel entry -> init)\n", up);
+	}
+	printf("KVMHOST init: userspace reached (expect=%s)\n",
 	       guest ? "guest" : "host");
 
 	want_present("version", "/proc/sys/kernel/osrelease", NULL);
@@ -207,8 +239,7 @@ int main(void)
 	else
 		want_present("kvm-device", "/sys/class/misc/kvm/dev", NULL);
 	want_present("nr-cpus", "/sys/devices/system/cpu/kernel_max", NULL);
-	want_present("thp-madvise", "/sys/kernel/mm/transparent_hugepage/enabled",
-		     "[madvise]");
+	check_thp();
 	want_present("lockdown", "/sys/kernel/security/lockdown", "[integrity]");
 	want_present("spectre-v2", "/sys/devices/system/cpu/vulnerabilities/spectre_v2",
 		     NULL);
