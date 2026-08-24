@@ -52,6 +52,22 @@ run dev; ok $? "dev"
 echo "injected=evil" >> "$MDIR/$ART.dev.manifest"
 run staging; no $? "staging refused on an altered (unsigned) dev manifest"
 
+echo "cannot reuse a manifest under another stage's name (stage-skip):"
+reset
+run dev; ok $? "dev"
+run staging; ok $? "staging"
+cp "$MDIR/$ART.staging.manifest" "$MDIR/$ART.canary.manifest"
+cp "$MDIR/$ART.staging.manifest.sig" "$MDIR/$ART.canary.manifest.sig"
+run prod; no $? "prod refused: copied staging->canary manifest fails stage/key check"
+
+echo "arm64 artifact pins its own -arm64 config:"
+reset
+head -c 4096 /dev/urandom > "$OUT/Image-wsdemo-arm64"; echo "A=y" > "$OUT/wsdemo-arm64.config"
+./scripts/promote.sh dev Image-wsdemo-arm64 >/tmp/promotest.$$ 2>&1; ad=$?
+ok $ad "arm64 dev stamps"
+if grep -q '^config=wsdemo-arm64.config$' "$MDIR/Image-wsdemo-arm64.dev.manifest" 2>/dev/null; then pass=$((pass+1)); echo "  PASS  arm64 manifest pins wsdemo-arm64.config (not the x86 config)"; else fail=$((fail+1)); echo "  FAIL  arm64 manifest pinned the wrong config"; fi
+rm -f "$OUT/Image-wsdemo-arm64" "$OUT/wsdemo-arm64.config" "$MDIR/Image-wsdemo-arm64".*
+
 echo "bad input:"
 reset
 run bogus; no $? "unknown stage rejected"
