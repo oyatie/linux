@@ -44,7 +44,7 @@ DOCKER_RUN = docker run --rm \
 	-e LUO_FLOOR="$(LUO_FLOOR)" \
 	$(IMAGE)
 
-.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw fc-real ch-real tpm viommu diag perf unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean
+.PHONY: help image check-msv fetch config build validate validate-all msv audit audit-list hardening pki artifact repro signed-kexec secureboot luo hw fc-real ch-real tpm viommu diag perf unaudited unused menuconfig config-diff initramfs smoke smoke-fc shell clean tree-clean distclean reclaim
 
 help:
 	@echo "kvmhost -- fleet kernels.  v1 track: linux-$(KERNEL_VERSION) (LTS);"
@@ -263,3 +263,7 @@ tree-clean:
 
 distclean: clean
 	-docker volume rm $(SRC_VOLUME)
+
+reclaim:            # between-tenant sanitize: crypto-erase + RAM scrub + attest (QEMU nvme+swtpm)
+	$(MAKE) build PROFILE=reclaim
+	./scripts/reclaim-smoke.sh
