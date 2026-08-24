@@ -47,10 +47,15 @@ EXPECT=${EXPECT:-host}
 if [ -z "${KEXEC_WANT:-}" ]; then
 	[ "$EXPECT" = "guest" ] && KEXEC_WANT=enosys || KEXEC_WANT=eperm
 fi
+# LUO is compiled only when the profile set LIVEUPDATE=yes AND the kernel is
+# >= floor -- the resolved .config is the source of truth, so read it rather
+# than assume from version alone (trusted-compute/workstation are hosts that do
+# NOT ship LUO, and would false-fail a version-only expectation).  Config name
+# mirrors build.sh: strip only the bzImage/Image prefix, keep any -arch/-dst.
 LUO_WANT=absent
-if [ "$EXPECT" = "host" ] && [ -n "${KVER:-}" ] && [ -n "${LUO_FLOOR:-}" ]; then
-	vn() { printf '%d%03d' "${1%%.*}" "$(echo "$1" | cut -d. -f2)"; }
-	[ "$(vn "$KVER")" -ge "$(vn "$LUO_FLOOR")" ] && LUO_WANT=required
+_luocfg="out/$(basename "$BZIMAGE" | sed -E 's/^(bzImage|Image)-//').config"
+if [ "$EXPECT" = "host" ] && [ -f "$_luocfg" ] && grep -q '^CONFIG_LIVEUPDATE=y' "$_luocfg"; then
+	LUO_WANT=required
 fi
 
 echo "==> booting $BZIMAGE under QEMU (timeout ${TIMEOUT}s)"

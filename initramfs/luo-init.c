@@ -47,7 +47,7 @@ int main(void)
 	/* Stage 1: preserve, then kexec into the (signed) next kernel. */
 	char *a[] = {"/luo_kexec_simple", "--stage", "1", NULL};
 	printf("\nLUO-TEST: pre-kexec, running stage 1 (preserve memfd)\n");
-	if (run(a) != 0) { printf("LUO-TEST: RESULT FAIL (stage 1)\n"); sync(); reboot(RB_POWER_OFF); }
+	if (run(a) != 0) { printf("LUO-TEST: RESULT FAIL (stage 1)\n"); sync(); reboot(RB_POWER_OFF); return 0; }
 
 	int kfd = open("/boot/bzImage", O_RDONLY);
 	int ifd = open("/boot/initramfs", O_RDONLY);

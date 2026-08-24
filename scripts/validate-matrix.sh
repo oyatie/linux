@@ -30,7 +30,7 @@ fc-guest KARCH=arm64
 reclaim KARCH=arm64
 '
 
-fail=0
+FAILLOG=$(mktemp); trap 'rm -f "$FAILLOG"' EXIT
 echo "$MATRIX" | while IFS= read -r row; do
 	[ -n "$row" ] || continue
 	profile=${row%% *}
@@ -41,24 +41,23 @@ echo "$MATRIX" | while IFS= read -r row; do
 		# shellcheck disable=SC2086
 		if make --no-print-directory KERNEL_VERSION="$v" PROFILE="$profile" $vars config; then
 			if [ "${AUDIT:-1}" = "1" ]; then
-				# the .config that config just wrote, plus arch-correct tree
-				a=x86_64; case "$vars" in *KARCH=arm64*) a=arm64;; esac
+				# audit the .config this tuple just wrote
 				docker run --rm -v kvmhost-src:/build -v "$PWD":/repo:ro kvmhost-build \
 					sh -c "python3 /repo/scripts/unaudited.py --strict \
 						--accept /repo/configs/accept-defaults.config \
 						/build/linux-$v /build/linux-$v/.config \
 						/repo/configs/fragments/*.config" ||
-					echo "AUDIT-FAILED: $row @ $v" >>/tmp/kvmhost-matrix-fail
+					echo "AUDIT-FAILED: $row @ $v" >>"$FAILLOG"
 			fi
 		else
-			echo "FAILED: $row @ $v" >>/tmp/kvmhost-matrix-fail
+			echo "FAILED: $row @ $v" >>"$FAILLOG"
 		fi
 	done
 done
-if [ -s /tmp/kvmhost-matrix-fail ]; then
-	echo; echo "==> matrix failures:"; cat /tmp/kvmhost-matrix-fail
-	rm -f /tmp/kvmhost-matrix-fail
+if [ -s "$FAILLOG" ]; then
+	echo; echo "==> matrix failures:"; cat "$FAILLOG"
+	rm -f "$FAILLOG"
 	exit 1
 fi
-rm -f /tmp/kvmhost-matrix-fail
+rm -f "$FAILLOG"
 echo; echo "==> matrix clean"
