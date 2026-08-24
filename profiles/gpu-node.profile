@@ -5,6 +5,6 @@
 # pci=realloc for big BARs), not config.
 DESC="GPU-VM host (later SKU; GPUs passed through via VFIO, no host GPU driver)"
 LAYERS="layer-hypervisor"
-OVERRIDES="opt-datapath-perf opt-livepatch"
+OVERRIDES="opt-datapath-perf opt-livepatch hw-cxl"
 NICS="mellanox"
 LIVEUPDATE="yes"

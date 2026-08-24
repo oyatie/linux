@@ -3,5 +3,5 @@
 # First-party AI training is this profile plus GPU=nvidia|amd.
 DESC="Trusted compute node (later SKU; first-party only, IOMMU passthrough)"
 LAYERS="layer-containers"
-OVERRIDES="opt-trusted"
+OVERRIDES="opt-trusted hw-cxl"
 NICS="mellanox"
