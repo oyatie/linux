@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   # Fast, no-docker gate -- fails the pipeline before the expensive jobs if a
   # secret leaks into the tree, the promotion gate breaks, or a script is
