@@ -56,6 +56,13 @@ fall out:
 - **No swapped binary** -- the exact bits that passed canary are the bits that
   reach prod; a rebuild (different hash) fails the gate.
 
+Manifests are signed **per stage with that stage's own key** (so one stage's
+manifest can't be replayed as another), and each promotion re-verifies the whole
+chain back to dev.  Signing is pluggable: set `KVMHOST_PROMOTE_SIGNER=<cmd>` to
+sign via an external HSM/KMS -- the command receives `<stage> <manifest> <sig-out>`
+and must place the stage's verify cert at `out/pki/promote/<stage>.crt`; left
+unset, promotion uses local per-stage keys (dev).
+
 ```
 make promote-dev     PROMOTE_ARTIFACT=bzImage-hypervisor
 make promote-staging PROMOTE_ARTIFACT=bzImage-hypervisor

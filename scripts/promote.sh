@@ -39,6 +39,23 @@ verify_sig() { # $1 manifest  $2 stage-whose-key
 	rc=$?; rm -f "$pub"; return $rc
 }
 
+# Signing: an external signer (HSM/KMS) when KVMHOST_PROMOTE_SIGNER is set,
+# else a local per-stage key (dev).  External signer contract:
+#   $KVMHOST_PROMOTE_SIGNER <stage> <manifest-file> <sig-out-file>
+# it writes the detached signature AND ensures the stage's verify cert is at
+# $PKI/<stage>.crt (verify_sig reads that cert regardless of who signed).
+SIGNER=${KVMHOST_PROMOTE_SIGNER:-}
+sign_manifest() {  # $1 stage  $2 manifest
+	if [ -n "$SIGNER" ]; then
+		"$SIGNER" "$1" "$2" "$2.sig" || { echo "external signer ($SIGNER) failed for stage '$1'" >&2; exit 1; }
+		[ -s "$2.sig" ] || { echo "external signer produced no signature for stage '$1'" >&2; exit 1; }
+		[ -f "$PKI/$1.crt" ] || { echo "external signer must place the '$1' verify cert at $PKI/$1.crt" >&2; exit 1; }
+	else
+		keygen "$1"
+		openssl dgst -sha256 -sign "$PKI/$1.key" -out "$2.sig" "$2"
+	fi
+}
+
 art_sha=$(sha "$OUT/$art")
 
 # stage immediately before $stage, and the full chain up to it
@@ -66,8 +83,6 @@ if [ -n "$prev" ]; then
 	prev_msha=$(sha "$MDIR/$art.$prev.manifest")
 fi
 
-keygen "$stage"
-
 # derive the profile config exactly as build.sh names it (do NOT strip -arch:
 # build.sh writes <profile>-<arch>.config for non-x86 and <profile>-dst for the
 # destination track).
@@ -92,7 +107,7 @@ signed_by=$stage
 golden_attestation=$golden
 promoted_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 MEOF
-openssl dgst -sha256 -sign "$PKI/$stage.key" -out "$man.sig" "$man"
+sign_manifest "$stage" "$man"
 
 echo "==> $art promoted to '$stage' (signed by the '$stage' key)"
 [ -n "$prev" ] && echo "    gate OK: identical artifact cleared the full chain dev..'$prev'"

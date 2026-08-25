@@ -68,6 +68,30 @@ ok $ad "arm64 dev stamps"
 if grep -q '^config=wsdemo-arm64.config$' "$MDIR/Image-wsdemo-arm64.dev.manifest" 2>/dev/null; then pass=$((pass+1)); echo "  PASS  arm64 manifest pins wsdemo-arm64.config (not the x86 config)"; else fail=$((fail+1)); echo "  FAIL  arm64 manifest pinned the wrong config"; fi
 rm -f "$OUT/Image-wsdemo-arm64" "$OUT/wsdemo-arm64.config" "$MDIR/Image-wsdemo-arm64".*
 
+echo "external signer hook (HSM/KMS):"
+reset
+rm -f "$OUT"/pki/promote/dev.* "$OUT"/pki/promote/staging.* 2>/dev/null || true
+MOCK=$(mktemp)
+cat > "$MOCK" <<'MS'
+#!/bin/sh
+# mock HSM: signs with a per-stage key it manages and provisions the verify cert
+stage=$1; man=$2; sig=$3
+k="out/pki/promote/$stage.key"; c="out/pki/promote/$stage.crt"
+[ -f "$k" ] || openssl req -x509 -newkey rsa:2048 -nodes -keyout "$k" -out "$c" -days 3650 -subj "/CN=hsm-$stage" >/dev/null 2>&1
+openssl dgst -sha256 -sign "$k" -out "$sig" "$man"
+MS
+chmod +x "$MOCK"
+KVMHOST_PROMOTE_SIGNER="$MOCK" ./scripts/promote.sh dev "$ART" >/tmp/promotest.$$ 2>&1; ok $? "external signer stamps dev"
+KVMHOST_PROMOTE_SIGNER="$MOCK" ./scripts/promote.sh staging "$ART" >/tmp/promotest.$$ 2>&1; ok $? "external signer chains dev->staging"
+rm -f "$MOCK"
+
+echo "external signer failure is fatal:"
+reset
+rm -f "$OUT"/pki/promote/dev.* 2>/dev/null || true
+BADMOCK=$(mktemp); printf '#!/bin/sh\nexit 3\n' > "$BADMOCK"; chmod +x "$BADMOCK"
+KVMHOST_PROMOTE_SIGNER="$BADMOCK" ./scripts/promote.sh dev "$ART" >/tmp/promotest.$$ 2>&1; no $? "promotion aborts when the external signer errors"
+rm -f "$BADMOCK"
+
 echo "bad input:"
 reset
 run bogus; no $? "unknown stage rejected"
