@@ -89,6 +89,12 @@ platform=${KVMHOST_PLATFORM:-${PLATFORM:-metal}}
 	{ echo "no such platform fragment: platform-$platform.config" >&2; exit 1; }
 add "platform-$platform"
 
+# Metal owns the boot chain (KEXEC_SIG, verity roothash sig, module sig), so it
+# must carry the keys those checks verify against.  Automatic rather than
+# per-profile opt-in: a metal image shipping with an empty trusted keyring has
+# signature checks that cannot pass, which reads as "secure" and is not.
+[ "$platform" = metal ] && add "opt-trustkey"
+
 # --- role layers -------------------------------------------------------------
 for f in ${LAYERS:-}; do add "$f"; done
 
@@ -144,6 +150,16 @@ case $mitig in
 strict) ;;
 relaxed)
 	[ "$KARCH" = x86_64 ] || { echo "MITIGATIONS=relaxed is x86-only (the speculation set it relaxes is x86; arm64's is marginal)" >&2; exit 1; }
+	# Tenancy gate, not just an arch gate: relaxing speculation mitigations on a
+	# host that runs MULTIPLE TENANTS' VMs removes exactly the tenant<->tenant
+	# microarchitectural isolation those mitigations provide.  Refuse it on any
+	# profile carrying the KVM host layer (hypervisor, hypervisor-dpu, gpu-node).
+	case " ${LAYERS:-} " in *" layer-hypervisor "*)
+		echo "MITIGATIONS=relaxed is refused on multi-tenant KVM hosts (PROFILE=$PROFILE" >&2
+		echo "carries layer-hypervisor): tenant<->tenant isolation is what these" >&2
+		echo "mitigations provide.  Single-tenant/first-party SKUs only." >&2
+		exit 1 ;;
+	esac
 	add "opt-mitigations-relaxed" ;;
 *) echo "MITIGATIONS=$mitig unknown (strict|relaxed)" >&2; exit 1 ;;
 esac
@@ -193,6 +209,25 @@ echo "==> merging $(echo "$fragments" | wc -w) fragments"
 make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" olddefconfig >/dev/null
 
 echo "==> verifying intent survived Kconfig resolution"
+
+# --- fleet identity ---------------------------------------------------------
+# Without this every SKU, arch and track reports an identical `uname -r`, so a
+# running host cannot say which kernel it is: no inventory, no "who is exposed
+# to CVE-X", no way to prove a rollback landed, and livepatch vermagic would not
+# stop a patch loading into the wrong SKU.  Generated last so it wins, and
+# deterministic (profile+track+arch+knobs only) so reproducible builds hold.
+idtag=$PROFILE${KVMHOST_TRACK:+-$KVMHOST_TRACK}
+[ "$KARCH" != x86_64 ] && idtag="$idtag-$KARCH"
+[ "$mitig" = relaxed ] && idtag="$idtag-relaxed"
+{
+	echo "CONFIG_LOCALVERSION=\"-$idtag\""
+	echo "CONFIG_BUILD_SALT=\"$idtag\""
+	echo "# CONFIG_LOCALVERSION_AUTO is not set"
+} > "$SRC/.kvmhost-identity.config"
+fragments="$fragments $SRC/.kvmhost-identity.config"
+./scripts/kconfig/merge_config.sh -m -O "$SRC" .config "$SRC/.kvmhost-identity.config" >/dev/null 2>&1
+make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" olddefconfig >/dev/null
+
 sh "$REPO/scripts/check-config.sh" "$SRC/.config" $fragments
 
 # Emit the exact fragment set merged for THIS profile so the audit can scope
@@ -201,6 +236,10 @@ printf "%s\n" $fragments > "$SRC/.kvmhost-fragments"
 
 mkdir -p "$OUT"
 cfgname=$PROFILE${KVMHOST_TRACK:+-$KVMHOST_TRACK}
+# A relaxed-mitigation build is a DIFFERENT product: name it so, or it silently
+# overwrites the strict config/artifact at the same path and the attested
+# identity becomes ambiguous.
+[ "$mitig" = relaxed ] && cfgname="$cfgname-relaxed"
 [ "$KARCH" != "x86_64" ] && cfgname="$cfgname-$KARCH"
 cp "$SRC/.config" "$OUT/$cfgname.config"
 
@@ -213,6 +252,7 @@ echo "==> building with $JOBS jobs"
 make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" -j"$JOBS" "$KIMG"
 
 suffix=$PROFILE${KVMHOST_TRACK:+-$KVMHOST_TRACK}
+[ "$mitig" = relaxed ] && suffix="$suffix-relaxed"
 [ "$KARCH" != "x86_64" ] && suffix="$suffix-$KARCH"
 cp "$SRC/$KIMG_PATH" "$OUT/$KIMG-$suffix"
 size=$(stat -c %s "$OUT/$KIMG-$suffix")

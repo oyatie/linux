@@ -23,4 +23,12 @@ gen() {
 }
 gen secureboot "Secure Boot db"
 gen verity     "dm-verity root"
+
+# The kernel's built-in trusted keyring must carry EVERY cert the boot/update
+# chain verifies against, not just the UKI signer: KEXEC_SIG checks the next
+# kernel (secureboot), and DM_VERITY_VERIFY_ROOTHASH_SIG checks the signed root
+# hash (verity).  CONFIG_SYSTEM_TRUSTED_KEYS takes a PEM that may hold several
+# certs, so publish one bundle and bake that.
+cat "$OUT/secureboot.crt" "$OUT/verity.crt" > "$OUT/trusted-keys.pem"
+echo "==> trust bundle: trusted-keys.pem (secureboot + verity)"
 echo "==> DEV keys in $OUT (NOT FOR PRODUCTION)"

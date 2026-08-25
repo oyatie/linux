@@ -109,7 +109,7 @@ fetch: check-msv
 config: fetch | $(OUT)
 	$(DOCKER_RUN) sh -c 'CONFIG_ONLY=1 /repo/scripts/build.sh'
 
-build: fetch | $(OUT)
+build: fetch pki | $(OUT)
 	$(DOCKER_RUN) /repo/scripts/build.sh
 
 validate: config
