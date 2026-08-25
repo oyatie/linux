@@ -84,6 +84,20 @@ not a settled decision.
 - `TRIM_UNUSED_KSYMS` — conflicts with livepatch, which needs the symbols.
 - `SECURITY_SELINUX_BOOTPARAM` — kept as an operational escape hatch.
 
+## Relaxing mitigations per fleet -- `MITIGATIONS=relaxed`
+
+All CPU-speculation mitigations are compiled in on every SKU; the *runtime*
+posture is a per-fleet build knob.  `MITIGATIONS=relaxed` (x86-only) bakes
+`mitigations=off` into the image via `opt-mitigations-relaxed` (CONFIG_CMDLINE,
+appended to the bootloader line so it wins yet the bootloader can still add
+args), so a single-tenant / first-party fleet's relaxed posture is an
+**attested property of the artifact** -- a distinct, distinctly-attested binary,
+not a full-mitigations image running a forgotten `mitigations=off` cmdline.
+Mitigations stay compiled in, so it is runtime-recoverable (`mitigations=auto`
+re-enables).  Default is `strict` (all active).  Never use `relaxed` on a
+multi-tenant host -- tenant<->tenant microarchitectural isolation is exactly
+what these mitigations provide.
+
 ## Not adopted, but on the table
 
 `RESET_ATTACK_MITIGATION` (wipe RAM on dirty reboot, anti cold-boot) is

@@ -136,6 +136,18 @@ for a in $accel; do
 	add "hw-accel-$a"
 done
 
+# --- CPU-mitigation posture: strict (default, all mitigations active) or
+# relaxed (bake mitigations=off into the image for single-tenant/first-party
+# fleets; every mitigation stays compiled in and runtime-recoverable). --------
+mitig=${KVMHOST_MITIGATIONS:-${MITIGATIONS:-strict}}
+case $mitig in
+strict) ;;
+relaxed)
+	[ "$KARCH" = x86_64 ] || { echo "MITIGATIONS=relaxed is x86-only (the speculation set it relaxes is x86; arm64's is marginal)" >&2; exit 1; }
+	add "opt-mitigations-relaxed" ;;
+*) echo "MITIGATIONS=$mitig unknown (strict|relaxed)" >&2; exit 1 ;;
+esac
+
 # --- NICs: host SKUs pin what the fleet buys (profile NICS=); guests are
 # virtio-only (NICS=none).  The fallback soup exists for bring-up images.
 nics=${KVMHOST_NICS:-${NICS:-mellanox intel broadcom}}

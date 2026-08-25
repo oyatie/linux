@@ -23,6 +23,7 @@ gpu-node
 trusted-compute
 trusted-compute GPU=nvidia
 trusted-compute GPU=amd
+trusted-compute MITIGATIONS=relaxed
 ch-guest
 ch-guest-k8s
 fc-guest
