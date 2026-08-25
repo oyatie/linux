@@ -16,12 +16,12 @@ if [ -d "$SRCROOT/linux-$V" ]; then
 fi
 
 echo "==> fetching $URL"
-curl -fsSL -o "$SRCROOT/linux-$V.tar.xz" "$URL"
+curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 30 -o "$SRCROOT/linux-$V.tar.xz" "$URL"
 
 # kernel.org signs the .tar (not the .tar.xz).  Verify if a key is present;
 # a production build system should make this mandatory.
 if [ "${VERIFY_SIG:-0}" = "1" ]; then
-	curl -fsSL -o "$SRCROOT/linux-$V.tar.sign" "${URL%.xz}.sign"
+	curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 30 -o "$SRCROOT/linux-$V.tar.sign" "${URL%.xz}.sign"
 	xz -cd "$SRCROOT/linux-$V.tar.xz" |
 		gpg --verify "$SRCROOT/linux-$V.tar.sign" -
 fi
