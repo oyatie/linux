@@ -183,6 +183,10 @@ make -s ARCH="$KARCH" CROSS_COMPILE="$CROSS" olddefconfig >/dev/null
 echo "==> verifying intent survived Kconfig resolution"
 sh "$REPO/scripts/check-config.sh" "$SRC/.config" $fragments
 
+# Emit the exact fragment set merged for THIS profile so the audit can scope
+# "requested" to this profile (not every fragment in the tree).
+printf "%s\n" $fragments > "$SRC/.kvmhost-fragments"
+
 mkdir -p "$OUT"
 cfgname=$PROFILE${KVMHOST_TRACK:+-$KVMHOST_TRACK}
 [ "$KARCH" != "x86_64" ] && cfgname="$cfgname-$KARCH"

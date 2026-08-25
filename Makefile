@@ -132,21 +132,21 @@ audit: config
 		'python3 /repo/scripts/unaudited.py --strict \
 			--accept /repo/configs/accept-defaults.config \
 			/build/linux-$(KERNEL_VERSION) /build/linux-$(KERNEL_VERSION)/.config \
-			/repo/configs/fragments/*.config'
+			$$(cat /build/linux-$(KERNEL_VERSION)/.kvmhost-fragments)'
 
 # Print default-on features not yet in the ledger (to extend it).
 audit-list: config
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro $(IMAGE) sh -c \
 		'python3 /repo/scripts/unaudited.py --accept /repo/configs/accept-defaults.config \
 			/build/linux-$(KERNEL_VERSION) /build/linux-$(KERNEL_VERSION)/.config \
-			/repo/configs/fragments/*.config'"'"
+			$$(cat /build/linux-$(KERNEL_VERSION)/.kvmhost-fragments)'"'"
 
 # Classify every enabled symbol: requested by a fragment, implied by a select,
 # or arrived from a Kconfig default with nobody looking.
 unaudited: config
 	docker run --rm -v $(SRC_VOLUME):/build -v $(CURDIR):/repo:ro $(IMAGE) sh -c \
 		'python3 /repo/scripts/unaudited.py /build/linux-$(KERNEL_VERSION) \
-		/build/linux-$(KERNEL_VERSION)/.config /repo/configs/fragments/*.config'
+		/build/linux-$(KERNEL_VERSION)/.config $$(cat /build/linux-$(KERNEL_VERSION)/.kvmhost-fragments)'
 
 # Interactive exploration only.  menuconfig is not how this kernel is
 # configured -- an interactive session is not reviewable, not reproducible in

@@ -46,7 +46,7 @@ echo "$MATRIX" | while IFS= read -r row; do
 					sh -c "python3 /repo/scripts/unaudited.py --strict \
 						--accept /repo/configs/accept-defaults.config \
 						/build/linux-$v /build/linux-$v/.config \
-						/repo/configs/fragments/*.config" ||
+						\$(cat /build/linux-$v/.kvmhost-fragments)" ||
 					echo "AUDIT-FAILED: $row @ $v" >>"$FAILLOG"
 			fi
 		else
