@@ -15,6 +15,9 @@ hypervisor
 hypervisor CPU=intel
 hypervisor CPU=amd
 hypervisor KVMHOST_EXTRA=opt-windows
+hypervisor ACCEL=intel-dsa
+hypervisor ACCEL=intel-qat
+hypervisor ACCEL=intel-iaa
 hypervisor-dpu
 gpu-node
 trusted-compute
