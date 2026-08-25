@@ -3,7 +3,10 @@
 # The host may be arm64 (Apple silicon) or x86_64; the target is x86_64 OR
 # arm64 (KARCH).  We always use the cross toolchain, even when host==target,
 # so that every developer produces byte-identical objects.
-FROM debian:trixie-slim
+# Base pinned BY DIGEST, not by the floating trixie-slim tag: `make repro`
+# otherwise proves only same-container determinism, while the container
+# itself could change under us.  Update deliberately.
+FROM debian:trixie-slim@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
 
 ENV DEBIAN_FRONTEND=noninteractive
 

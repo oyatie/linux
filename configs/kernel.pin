@@ -24,3 +24,11 @@ MSV=6.18
 # Below this, host profiles build WITHOUT live update and the update story is
 # drain + livepatch -- build.sh says so out loud.
 LUO_FLOOR=7.0
+
+# Source integrity: the exact tarball each version must hash to (from
+# kernel.org's signed sha256sums.asc).  fetch.sh REFUSES to unpack anything
+# else -- without this, every downstream guarantee (Secure Boot, dm-verity,
+# signed kexec, the promotion hash-chain) is anchored to whatever HTTPS
+# happened to return.  Update deliberately, with the new hash, when bumping.
+KERNEL_SHA256=30fa4a56579ca614ac125a12614f7f6466f87ab1278aef7b951dd74156deab33
+DESTINATION_SHA256=f9fef3d14c0df53819026f4be74459835c2a0b0dcbf5b5bbd9ea19f0829402b3
