@@ -73,6 +73,42 @@ for line in config.read_text().splitlines():
     if m:
         enabled.add(m.group(1))
 
+# --- when does a `select X if COND` actually fire? --------------------------
+# `make olddefconfig` only honours a conditional select when COND is true.  If
+# we ignored COND we would file a symbol conditionally selected by an enabled
+# parent under "implied" even when COND is false -- masking a genuine default-on
+# feature from the --strict gate.  A full Kconfig expression evaluator is out of
+# scope; we only need to decide, *conservatively*, when a select may be inactive.
+COND_HAS_OPERATOR = re.compile(r"[|!=<>]")  # ||  !  =  !=  <  >  <=  >=
+
+def select_requires(cond):
+    """Symbols that must ALL be enabled for `select X if cond` to fire.
+
+    Empty set == "always fires".  We return it for an unconditional select
+    (cond is None) and, deliberately, for any condition we cannot judge
+    soundly.  We only interpret the one unambiguous shape: a *pure conjunction*
+    of plain symbols (e.g. `NET && INET`), where "every named symbol is enabled"
+    is exactly equivalent to "the condition is true" -- and so a missing symbol
+    means the select is *clearly* inactive.  That is the soundness gap we fix.
+
+    For OR (`||`), NOT (`!`) or any comparison (`=`, `!=`, `<`, `>`) we bail to
+    the lenient empty set, because there a missing symbol does NOT make the
+    condition false (`!FOO` holds precisely when FOO is off; `A || B` holds with
+    only one side).  Treating those as inactive would demote a legitimately
+    selected symbol to UNDECIDED and could fail --strict spuriously.  The
+    asymmetry is intentional: being too lenient merely forgoes one audit line,
+    while being too strict breaks the build -- so when in doubt, we stay lenient.
+    """
+    if cond is None:
+        return set()                       # unconditional select: always fires
+    cond = cond.split("#", 1)[0]           # drop any trailing comment
+    if COND_HAS_OPERATOR.search(cond):
+        return set()                       # not a pure AND -> lenient (always fires)
+    # Pure conjunction: pull the bare symbol names.  Kconfig conditions use bare
+    # names ("NET && INET"), but tolerate a stray CONFIG_ prefix just in case.
+    return {t[7:] if t.startswith("CONFIG_") else t
+            for t in re.findall(r"[A-Z0-9_]+", cond)}
+
 # --- parse every Kconfig for selects and prompts ----------------------------
 selects, prompted = {}, set()
 cur = None
@@ -93,15 +129,27 @@ for kc in tree.rglob("Kconfig*"):
         if re.match(r"^\s*(bool|tristate|string|int|hex)\s+\"", line) or \
            re.match(r"^\s*prompt\s+\"", line):
             prompted.add(cur)
-        m = re.match(r"^\s*select\s+([A-Z0-9_]+)", line)
+        # `select X` or `select X if COND`.  No `$` anchor: keep the original
+        # behaviour of tolerating trailing junk (e.g. a comment) after the line.
+        m = re.match(r"^\s*select\s+([A-Z0-9_]+)(?:\s+if\s+(.+))?", line)
         if m:
-            selects.setdefault(cur, set()).add(m.group(1))
+            # Store (selected symbol, symbols its condition requires).  An empty
+            # requirement set means the select always fires; see select_requires.
+            selects.setdefault(cur, []).append(
+                (m.group(1), select_requires(m.group(2))))
         if re.match(r"^\s*(end)?(menu|choice|if)\b", line):
             cur = None
 
 implied = set()
 for sym in enabled:
-    implied |= selects.get(sym, set())
+    for target, required in selects.get(sym, []):
+        # `required` is empty for an unconditional (or too-complex-to-judge)
+        # select, so `<= enabled` is trivially true and it always fires.  A
+        # conjunctive `select X if A && B` fires only when every named symbol
+        # (A, B) is itself enabled; otherwise the condition is clearly false and
+        # X is left to surface as UNDECIDED -- the case this closes.
+        if required <= enabled:
+            implied.add(target)
 
 undecided = sorted(enabled - requested - implied)
 # Split the residue: a promptless symbol is internal plumbing (architecture
